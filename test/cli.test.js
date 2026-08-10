@@ -15,6 +15,7 @@ test('parseArgs defaults to serving, with no repository and an automatic browser
     port: null,
     open: true,
     format: 'json',
+    file: null,
     help: false,
     version: false
   });
@@ -45,6 +46,17 @@ test('parseArgs reads the export format as a flag or inline', () => {
 test('parseArgs rejects an unknown export format', () => {
   assert.throws(() => parseArgs(['export', '--format', 'yaml'], CWD), UsageError);
   assert.throws(() => parseArgs(['export', '--format'], CWD), UsageError);
+});
+
+test('parseArgs reads an export file filter as a flag or inline', () => {
+  assert.equal(parseArgs(['export', '--file', 'src/auth.js'], CWD).file, 'src/auth.js');
+  assert.equal(parseArgs(['export', '--file=src/auth.js'], CWD).file, 'src/auth.js');
+});
+
+test('parseArgs requires a non-empty file filter on export', () => {
+  assert.throws(() => parseArgs(['export', '--file'], CWD), UsageError);
+  assert.throws(() => parseArgs(['export', '--file='], CWD), UsageError);
+  assert.throws(() => parseArgs(['--file', 'src/auth.js'], CWD), UsageError);
 });
 
 test('parseArgs resolves a relative repository against the working directory', () => {
@@ -132,7 +144,7 @@ test('buildUrl encodes characters that would otherwise split the query', () => {
 });
 
 test('the usage text documents every option the parser accepts', () => {
-  for (const flag of ['--port', '--no-open', '--help', '--version']) {
+  for (const flag of ['--port', '--no-open', '--file', '--help', '--version']) {
     assert.ok(USAGE.includes(flag), `usage should mention ${flag}`);
   }
 });

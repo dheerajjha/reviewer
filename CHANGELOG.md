@@ -6,6 +6,11 @@ adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
 ## [Unreleased]
 
+### Added
+
+- **`reviewer export --file <path>`** filters agent-ready JSON or prompt output
+  to one repo-relative file and reports summary counts for what was emitted.
+
 ## [2.0.0] - 2026-08-10
 
 Dropped the Electron wrapper. It added a few hundred megabytes and a

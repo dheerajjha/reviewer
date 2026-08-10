@@ -15,6 +15,13 @@ running and without submitting anything. Two formats:
 - `--format prompt` — the same content as instructions for a coding agent,
   ready to pipe.
 
+Add `--file <repo-relative-path>` to export only one file's comments. The
+document's `summary` is recalculated to describe the filtered output:
+
+```bash
+reviewer export . --file src/auth.js --format prompt
+```
+
 Submitting a review in the UI also writes the JSON form next to the `.txt`,
 as `reviews/review_<repo>_<timestamp>.json`.
 

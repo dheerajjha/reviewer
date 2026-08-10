@@ -3,7 +3,7 @@
 const test = require('node:test');
 const assert = require('node:assert/strict');
 
-const { buildReviewDocument, formatPrompt, SCHEMA } = require('../lib/agent');
+const { buildReviewDocument, filterReviewDocument, formatPrompt, SCHEMA } = require('../lib/agent');
 
 const AT = new Date('2026-08-10T12:30:45.678Z');
 
@@ -67,6 +67,35 @@ test('buildReviewDocument groups by file and orders by line', () => {
     'src/auth.js:10',
     'src/cache.js:5'
   ]);
+});
+
+test('filterReviewDocument emits one file and recounts its summary', () => {
+  const document = build();
+  const filtered = filterReviewDocument(document, { file: 'src/auth.js' });
+
+  assert.deepEqual(filtered.summary, { comments: 2, files: 1 });
+  assert.deepEqual(filtered.comments.map(comment => comment.id), [
+    'src/auth.js:2',
+    'src/auth.js:10'
+  ]);
+  assert.match(formatPrompt(filtered), /2 comment\(s\) across 1 file\(s\)/);
+  assert.doesNotMatch(formatPrompt(filtered), /Why here\?/);
+  assert.deepEqual(document.summary, { comments: 3, files: 2 });
+});
+
+test('filterReviewDocument reports an empty result without mutating the document', () => {
+  const document = build();
+  const filtered = filterReviewDocument(document, { file: 'src/missing.js' });
+
+  assert.deepEqual(filtered.summary, { comments: 0, files: 0 });
+  assert.deepEqual(filtered.comments, []);
+  assert.equal(document.comments.length, 3);
+});
+
+test('filterReviewDocument leaves unfiltered exports unchanged', () => {
+  const document = build();
+
+  assert.equal(filterReviewDocument(document), document);
 });
 
 test('every comment carries the source line as an anchor', () => {

@@ -8,7 +8,7 @@ const simpleGit = require('simple-git');
 
 const { parseArgs, buildUrl, UsageError, USAGE } = require('../lib/cli');
 const { openInBrowser } = require('../lib/browser');
-const { buildReviewDocument, formatPrompt } = require('../lib/agent');
+const { buildReviewDocument, filterReviewDocument, formatPrompt } = require('../lib/agent');
 const { commentsFilename } = require('../lib/review');
 const { startServer, DEFAULT_PORT, DEFAULT_HOST, REVIEWS_DIR } = require('../server');
 const { version } = require('../package.json');
@@ -67,13 +67,20 @@ async function exportReview(options) {
   const head = await git.revparse(['HEAD']).then(sha => sha.trim()).catch(() => null);
   const branch = await git.revparse(['--abbrev-ref', 'HEAD']).then(name => name.trim()).catch(() => null);
 
-  const document = buildReviewDocument({
-    repoPath,
-    comments,
-    generatedAt: new Date(),
-    head,
-    branch
-  });
+  const document = filterReviewDocument(
+    buildReviewDocument({
+      repoPath,
+      comments,
+      generatedAt: new Date(),
+      head,
+      branch
+    }),
+    { file: options.file }
+  );
+
+  if (document.comments.length === 0) {
+    throw new UsageError(`The saved review for ${repoPath} has no comments for ${options.file}.`);
+  }
 
   process.stdout.write(
     options.format === 'prompt'
