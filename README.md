@@ -3,7 +3,7 @@
 [![CI](https://github.com/dheerajjha/reviewer/actions/workflows/ci.yml/badge.svg)](https://github.com/dheerajjha/reviewer/actions/workflows/ci.yml)
 [![License: MIT](https://img.shields.io/badge/license-MIT-blue.svg)](LICENSE)
 [![Node](https://img.shields.io/badge/node-%3E%3D18-brightgreen.svg)](package.json)
-[![Tests](https://img.shields.io/badge/tests-142-brightgreen.svg)](test/)
+[![Tests](https://img.shields.io/badge/tests-143-brightgreen.svg)](test/)
 [![Dependencies](https://img.shields.io/badge/dependencies-3-brightgreen.svg)](package.json)
 
 ![Plain grey code lines on the left resolving into colored diff stripes, with threaded comment markers attached in the right margin](docs/banner.jpg)
@@ -209,7 +209,7 @@ rather than a public issue.
 
 ```bash
 npm install           # 3 dependencies, no build step, ~6MB
-npm test              # 142 tests
+npm test              # 143 tests
 npm run test:watch
 npm run test:coverage
 ```
@@ -236,7 +236,7 @@ temporary directory. The HTTP tests do not stub git: each one builds a real
 repository in a temp directory and runs real `git` against it, because diff
 parsing is exactly where a stub would be wrong in the same way the code is.
 
-Tests run on Linux, macOS, and Windows across Node 18, 20, and 22. See
+Tests run on Linux and macOS across Node 18, 20, and 22. See
 [CONTRIBUTING.md](CONTRIBUTING.md).
 
 ## Tech

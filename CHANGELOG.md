@@ -77,8 +77,8 @@ that could bite you or a change to a file the app writes.
   stub would be wrong in the same way the code is. Run them with `npm test` —
   no dependencies beyond what the app already ships, using the Node test
   runner.
-- **CI on every push and pull request** across Linux, macOS, and Windows on
-  Node 18, 20, and 22.
+- **CI on every push and pull request** across Linux and macOS on Node 18, 20,
+  and 22.
 - **`GET /api/health`.** The desktop shell now polls it to know the server is
   ready.
 - **A `HOST` environment variable**, for deliberately exposing the web mode
