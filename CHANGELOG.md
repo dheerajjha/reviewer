@@ -11,6 +11,18 @@ adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 - **`reviewer export --file <path>`** filters agent-ready JSON or prompt output
   to one repo-relative file and reports summary counts for what was emitted.
 
+### Fixed
+
+- **Two repositories with the same directory name no longer share one review.**
+  Comment and review files were named from the repository's basename alone, so
+  a second checkout called `api-service` wrote over the first one's review with
+  no warning — and every read afterwards served the survivor to whichever
+  repository asked, including `reviewer export`, which wrapped the wrong
+  comments in the right repository's path and commit. Filenames now carry a
+  fingerprint of the repository's canonical path. A review saved under the old
+  name is adopted on first read when the file records that it belongs to the
+  repository being opened, so nothing is lost in the move.
+
 ## [2.0.0] - 2026-08-10
 
 Dropped the Electron wrapper. It added a few hundred megabytes and a

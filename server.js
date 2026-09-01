@@ -13,6 +13,7 @@ const { SessionStore } = require('./lib/sessions');
 const { normalizeComments } = require('./lib/comments');
 const { formatReview, reviewFilename, commentsFilename } = require('./lib/review');
 const { buildReviewDocument } = require('./lib/agent');
+const { readSavedComments, ReviewOwnershipError } = require('./lib/store');
 
 const DEFAULT_PORT = 4500;
 const DEFAULT_HOST = '127.0.0.1';
@@ -294,17 +295,12 @@ function createApp(options = {}) {
       const session = requireSession(res, req.params.repoId);
       if (!session) return;
 
-      const source = path.join(reviewsDir, commentsFilename(session.repoPath));
-
-      let raw;
-      try {
-        raw = await fs.readFile(source, 'utf-8');
-      } catch {
-        return res.json({ comments: [] });
-      }
-
-      res.json({ comments: JSON.parse(raw).comments ?? [] });
+      const { comments } = await readSavedComments(reviewsDir, session.repoPath);
+      res.json({ comments });
     } catch (error) {
+      if (error instanceof ReviewOwnershipError) {
+        return res.status(409).json({ error: error.message });
+      }
       console.error('Load comments error:', error);
       res.status(500).json({ error: error.message });
     }
@@ -319,16 +315,7 @@ function createApp(options = {}) {
 
       // The JSON file is the source of truth, not whatever the client holds:
       // submitting renders exactly what was last saved.
-      const source = path.join(reviewsDir, commentsFilename(session.repoPath));
-
-      let comments = [];
-      try {
-        comments = JSON.parse(await fs.readFile(source, 'utf-8')).comments ?? [];
-      } catch {
-        return res.status(400).json({
-          error: 'No comments found. Please add comments before submitting review.'
-        });
-      }
+      const { comments } = await readSavedComments(reviewsDir, session.repoPath);
 
       if (comments.length === 0) {
         return res.status(400).json({
@@ -376,6 +363,9 @@ function createApp(options = {}) {
         totalComments: comments.length
       });
     } catch (error) {
+      if (error instanceof ReviewOwnershipError) {
+        return res.status(409).json({ error: error.message });
+      }
       console.error('Submit error:', error);
       res.status(500).json({ error: error.message });
     }

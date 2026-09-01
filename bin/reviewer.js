@@ -9,7 +9,7 @@ const simpleGit = require('simple-git');
 const { parseArgs, buildUrl, UsageError, USAGE } = require('../lib/cli');
 const { openInBrowser } = require('../lib/browser');
 const { buildReviewDocument, filterReviewDocument, formatPrompt } = require('../lib/agent');
-const { commentsFilename } = require('../lib/review');
+const { readSavedComments, ReviewOwnershipError } = require('../lib/store');
 const { startServer, DEFAULT_PORT, DEFAULT_HOST, REVIEWS_DIR } = require('../server');
 const { version } = require('../package.json');
 
@@ -47,18 +47,17 @@ async function listen(port) {
  */
 async function exportReview(options) {
   const repoPath = options.repoPath ?? process.cwd();
-  const source = path.join(REVIEWS_DIR, commentsFilename(repoPath));
 
-  let saved;
+  let comments;
   try {
-    saved = JSON.parse(await fs.readFile(source, 'utf-8'));
-  } catch {
-    throw new UsageError(`No saved review for ${repoPath}. Review it first, then export.`);
+    ({ comments } = await readSavedComments(REVIEWS_DIR, repoPath));
+  } catch (error) {
+    if (error instanceof ReviewOwnershipError) throw new UsageError(error.message);
+    throw error;
   }
 
-  const comments = saved.comments ?? [];
   if (comments.length === 0) {
-    throw new UsageError(`The saved review for ${repoPath} has no comments.`);
+    throw new UsageError(`No saved review for ${repoPath}. Review it first, then export.`);
   }
 
   // Recording the commit lets a consumer tell whether the tree has moved on

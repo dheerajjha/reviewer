@@ -3,7 +3,14 @@
 const test = require('node:test');
 const assert = require('node:assert/strict');
 
-const { formatReview, reviewFilename, commentsFilename, repoSlug } = require('../lib/review');
+const {
+  formatReview,
+  reviewFilename,
+  commentsFilename,
+  legacyCommentsFilename,
+  repoSlug,
+  repoKey
+} = require('../lib/review');
 
 const AT = new Date('2026-08-10T12:30:45.678Z');
 
@@ -129,12 +136,39 @@ test('repoSlug never yields a leading dot or an empty name', () => {
   assert.equal(repoSlug(undefined), 'repo');
 });
 
-test('commentsFilename is derived from the repository name', () => {
-  assert.equal(commentsFilename('/work/my-app'), '.code-review-comments-my-app.json');
+test('commentsFilename leads with the repository name and ends in a fingerprint', () => {
+  assert.match(commentsFilename('/work/my-app'), /^\.code-review-comments-my-app-[0-9a-f]{12}\.json$/);
+});
+
+test('two repositories with the same name get different comment files', () => {
+  // The bug this guards: both checkouts named the same file, so the second
+  // review overwrote the first and every later read served the survivor under
+  // whichever repository asked.
+  assert.notEqual(
+    commentsFilename('/work/a/api-service'),
+    commentsFilename('/work/b/api-service')
+  );
+});
+
+test('a path names the same file however it is written', () => {
+  assert.equal(commentsFilename('/work/my-app'), commentsFilename('/work/my-app/'));
+  assert.equal(commentsFilename('/work/my-app'), commentsFilename('/work/./my-app'));
+  assert.equal(commentsFilename('/work/my-app'), commentsFilename('/work/other/../my-app'));
+});
+
+test('repoKey keeps the readable name in front of the fingerprint', () => {
+  assert.match(repoKey('/work/my app (v2)'), /^my_app__v2_-[0-9a-f]{12}$/);
+});
+
+test('legacyCommentsFilename is the pre-fingerprint name, for migration', () => {
+  assert.equal(legacyCommentsFilename('/work/my-app'), '.code-review-comments-my-app.json');
 });
 
 test('reviewFilename embeds a sortable timestamp with no shell-hostile characters', () => {
-  assert.equal(reviewFilename('/work/my-app', AT), 'review_my-app_2026-08-10_12-30-45-678Z.txt');
+  assert.match(
+    reviewFilename('/work/my-app', AT),
+    /^review_my-app-[0-9a-f]{12}_2026-08-10_12-30-45-678Z\.txt$/
+  );
 });
 
 test('reviewFilename orders chronologically as plain text', () => {
