@@ -81,6 +81,11 @@ file, use it, and add a test that the endpoint refuses
 - Describe the symptom in the pull request body, not just the fix.
 - Add a `CHANGELOG.md` entry under `## [Unreleased]` for anything a user would
   notice — a fixed bug, a new flag, a changed output format.
+- If you add or remove a test, update the test-count badge in `README.md`.
+  `test/readme.test.js` fails until you do. Use the number of `test(...)`
+  declarations, which is what that test counts — not the total `node --test`
+  prints, which is one higher because it scores `test/helpers/repo.js` as a
+  test.
 - CI must be green: tests run on Linux and macOS across Node 18, 20, and 22.
   Windows is not in the matrix — its runners never picked up a job on this
   repository — so if you are on Windows, say so in the pull request, since your
