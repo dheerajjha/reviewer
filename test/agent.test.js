@@ -189,3 +189,104 @@ test('formatPrompt handles a review with a single comment and no extras', () => 
   assert.doesNotMatch(prompt, /Selected code/);
   assert.doesNotMatch(prompt, /Follow-ups/);
 });
+
+/**
+ * Read the fenced block that follows `label`, and the lines after it.
+ *
+ * Returns the opening marker, the block's contents, and everything between the
+ * closing marker and the next blank-line-delimited section, so a test can say
+ * both "the anchor is inside the block" and "the comment body is not".
+ *
+ * @param {string} prompt
+ * @param {string} label
+ * @returns {{marker: string, content: string[], after: string[]}}
+ */
+function readFencedBlock(prompt, label) {
+  const lines = prompt.split('\n');
+  const start = lines.indexOf(label) + 2;
+  const marker = lines[start];
+  const end = lines.indexOf(marker, start + 1);
+  return {
+    marker,
+    content: lines.slice(start + 1, end),
+    after: lines.slice(end + 1)
+  };
+}
+
+/**
+ * An anchor that is itself a Markdown fence must not be wrapped in a fence of
+ * the same length: the anchor closes the block early, and everything after it
+ * — the comment body the agent is told to act on, and the next comment's
+ * heading — is swallowed into a code block. See #22.
+ *
+ * `lib/review.js` already picks a marker longer than anything in the content
+ * for the `.txt` review; these pin the prompt format to the same rule.
+ */
+test('formatPrompt fences an anchor that is itself a fence with a longer marker', () => {
+  const prompt = formatPrompt(
+    build([{ file: 'GUIDE.md', line: 7, lineContent: '```', text: 'Close the fence here.' }])
+  );
+  const { marker, content, after } = readFencedBlock(prompt, 'Anchor line:');
+
+  assert.equal(marker, '````');
+  assert.deepEqual(content, ['```']);
+  assert.ok(
+    after.includes('Close the fence here.'),
+    'the comment body must land outside the fenced anchor, not inside it'
+  );
+});
+
+test('formatPrompt fences a selection that is itself a fence with a longer marker', () => {
+  const prompt = formatPrompt(
+    build([
+      {
+        file: 'GUIDE.md',
+        line: 7,
+        lineContent: 'text',
+        text: 'Selection case.',
+        selectedText: '```'
+      }
+    ])
+  );
+  const { marker, content, after } = readFencedBlock(prompt, 'Selected code:');
+
+  assert.equal(marker, '````');
+  assert.deepEqual(content, ['```']);
+  assert.ok(after.includes('Selection case.'));
+});
+
+test('formatPrompt keeps the next comment a heading when an anchor is a fence', () => {
+  const prompt = formatPrompt(
+    build([
+      { file: 'GUIDE.md', line: 7, lineContent: '```', text: 'Close the fence here.' },
+      { file: 'GUIDE.md', line: 9, lineContent: 'Done.', text: 'Add troubleshooting.' }
+    ])
+  );
+  const lines = prompt.split('\n');
+  const start = lines.indexOf('Anchor line:');
+
+  // Asserted as the exact emitted sequence rather than "the heading appears
+  // somewhere after the block": with a same-length marker the text is still
+  // present in the string, just no longer a heading, so a containment check
+  // passes either way and pins nothing.
+  assert.deepEqual(lines.slice(start, start + 7), [
+    'Anchor line:',
+    '',
+    '````',
+    '```',
+    '````',
+    '',
+    'Close the fence here.'
+  ]);
+  assert.ok(lines.includes('### GUIDE.md:9'));
+});
+
+test('formatPrompt leaves an ordinary anchor on a three-backtick fence', () => {
+  const prompt = formatPrompt(
+    build([{ file: 'a.js', line: 1, lineContent: 'const a = 1;', text: 'Rename.' }])
+  );
+  const { marker, content } = readFencedBlock(prompt, 'Anchor line:');
+
+  assert.equal(marker, '```');
+  assert.deepEqual(content, ['const a = 1;']);
+});

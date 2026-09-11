@@ -13,6 +13,15 @@ adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
 ### Fixed
 
+- **A comment anchored on a Markdown code fence no longer corrupts the agent
+  prompt.** `reviewer export --format prompt` wrapped every anchor and
+  selection in a hard-coded three-backtick fence. When the reviewed line was
+  itself a bare ``` — one per code block in every Markdown file — the block
+  closed on the anchor's own line, so the comment body the agent is told to act
+  on was emitted as code, and the next comment's `###` heading was swallowed
+  with it. The prompt format now picks a marker longer than any backtick run in
+  the content, which is the rule the `.txt` review already used.
+
 - **Two repositories with the same directory name no longer share one review.**
   Comment and review files were named from the repository's basename alone, so
   a second checkout called `api-service` wrote over the first one's review with
