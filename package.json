@@ -31,7 +31,8 @@
   },
   "main": "server.js",
   "bin": {
-    "reviewer": "bin/reviewer.js"
+    "reviewer": "bin/reviewer.js",
+    "git-reviewer": "bin/reviewer.js"
   },
   "files": [
     "bin/",

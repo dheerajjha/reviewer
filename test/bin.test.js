@@ -15,7 +15,7 @@ const os = require('node:os');
 // child processes resolve to the same throwaway.
 process.env.REVIEWER_DATA_DIR = fsSync.mkdtempSync(path.join(os.tmpdir(), 'reviewer-bin-'));
 
-const { createTempRepo, commitFiles, cleanup } = require('./helpers/repo');
+const { createTempRepo, createTempDir, commitFiles, cleanup } = require('./helpers/repo');
 const { commentsFilename } = require('../lib/review');
 const { REVIEWS_DIR } = require('../server');
 
@@ -35,11 +35,44 @@ const BIN = path.join(__dirname, '..', 'bin', 'reviewer.js');
  * @param {string[]} args
  * @returns {Promise<{code: number, stdout: string, stderr: string}>}
  */
-function run(args) {
+function run(args, { cwd } = {}) {
   return new Promise(resolve => {
-    execFile(process.execPath, [BIN, ...args], { timeout: 20000 }, (error, stdout, stderr) => {
+    execFile(process.execPath, [BIN, ...args], { timeout: 20000, cwd }, (error, stdout, stderr) => {
       resolve({ code: error?.code ?? 0, stdout, stderr });
     });
+  });
+}
+
+/**
+ * Start the command on a free port and wait for its banner.
+ *
+ * Resolves on the last line of the banner rather than the first match for a
+ * URL, so the whole of it is readable by the caller without a race.
+ *
+ * @param {string[]} args
+ * @param {object} [options]
+ * @param {string} [options.cwd] directory to run from
+ * @returns {Promise<{url: string, output: string, child: import('node:child_process').ChildProcess}>}
+ */
+function serve(args, { cwd } = {}) {
+  const child = require('node:child_process').spawn(
+    process.execPath,
+    [BIN, ...args, '--no-open', '--port', '0'],
+    { cwd, stdio: ['ignore', 'pipe', 'pipe'] }
+  );
+
+  return new Promise((resolve, reject) => {
+    let output = '';
+    const timer = setTimeout(() => reject(new Error(`no banner in output: ${output}`)), 15000);
+
+    child.stdout.on('data', chunk => {
+      output += chunk;
+      if (!output.includes('Press Ctrl+C')) return;
+
+      clearTimeout(timer);
+      resolve({ url: output.match(/http:\/\/127\.0\.0\.1:\d+\S*/)[0], output, child });
+    });
+    child.on('error', reject);
   });
 }
 
@@ -188,4 +221,74 @@ test('it serves the repository it was pointed at, then stops on SIGINT', async t
   const exited = new Promise(resolve => child.on('exit', resolve));
   child.kill('SIGINT');
   await exited;
+});
+
+test('the package installs the command under both of its names', () => {
+  // The package is published as `git-reviewer`, so `git-reviewer` is what a
+  // reader of the install line types next — and until this entry existed, that
+  // was a command not found. The second name also makes git dispatch to it, so
+  // `git reviewer` works the way any other git subcommand does.
+  assert.deepEqual(require('../package.json').bin, {
+    reviewer: 'bin/reviewer.js',
+    'git-reviewer': 'bin/reviewer.js'
+  });
+});
+
+test('with no repository it reviews the one you are standing in', async t => {
+  const repoPath = await createTempRepo();
+  t.after(() => cleanup(repoPath));
+  await commitFiles(repoPath, { 'app.js': 'a\n' }, 'initial');
+
+  const { url, output, child } = await serve([], { cwd: repoPath });
+  t.after(() => child.kill('SIGKILL'));
+
+  // `--help` had promised this since the first release. What actually
+  // happened was a page with an empty path box waiting to be typed into.
+  assert.equal(new URL(url).searchParams.get('repo'), repoPath);
+  assert.ok(output.includes(repoPath), `banner does not name the repository: ${output}`);
+});
+
+test('from a subdirectory it reviews the repository, not the subdirectory', async t => {
+  const repoPath = await createTempRepo();
+  t.after(() => cleanup(repoPath));
+  await commitFiles(repoPath, { 'src/deep/app.js': 'a\n' }, 'initial');
+
+  const { url, child } = await serve([], { cwd: path.join(repoPath, 'src', 'deep') });
+  t.after(() => child.kill('SIGKILL'));
+
+  assert.equal(new URL(url).searchParams.get('repo'), repoPath);
+});
+
+test('outside a repository it opens the page on its picker', async t => {
+  const plain = await createTempDir();
+  t.after(() => cleanup(plain));
+
+  const { url, child } = await serve([], { cwd: plain });
+  t.after(() => child.kill('SIGKILL'));
+
+  // Naming a directory and defaulting to one are answered differently. Nobody
+  // asked for this directory in particular, so there is nothing to report as
+  // an error: the page opens where it always did.
+  assert.equal(new URL(url).searchParams.get('repo'), null);
+});
+
+test('export run from a subdirectory finds the repository review', async t => {
+  const repoPath = await createTempRepo();
+  t.after(() => cleanup(repoPath));
+  await commitFiles(repoPath, { 'src/deep/app.js': 'a\n' }, 'initial');
+
+  const saved = await saveComments(repoPath, [
+    { file: 'src/deep/app.js', line: 1, lineContent: 'a', text: 'Check this.' }
+  ]);
+  t.after(() => fs.rm(saved, { force: true }));
+
+  // Reviews are filed under the repository root. Exporting from one directory
+  // down used to report that the repository had no review at all, which broke
+  // the loop the README leads with.
+  const { code, stdout, stderr } = await run(['export'], {
+    cwd: path.join(repoPath, 'src', 'deep')
+  });
+
+  assert.equal(code, 0, stderr);
+  assert.equal(JSON.parse(stdout).repository.path, repoPath);
 });

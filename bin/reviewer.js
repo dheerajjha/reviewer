@@ -9,6 +9,7 @@ const { openInBrowser } = require('../lib/browser');
 const { formatPrompt } = require('../lib/agent');
 const { ReviewOwnershipError } = require('../lib/store');
 const { reviewsDir, adoptLegacyReviews } = require('../lib/paths');
+const { repoRoot } = require('../lib/repo');
 const {
   loadReviewDocument,
   NoReviewError,
@@ -50,7 +51,13 @@ async function listen(port) {
  * @param {import('../lib/cli').CliOptions} options
  */
 async function exportReview(options) {
-  const repoPath = options.repoPath ?? process.cwd();
+  // Saved reviews are filed under the repository root, so exporting from a
+  // subdirectory has to look there too — otherwise the browser saves a review
+  // one directory up and this reports that none exists. Falling back to the
+  // path as given keeps the case `lib/export.js` deliberately supports: a
+  // review whose repository is no longer a repository is still exportable.
+  const given = options.repoPath ?? process.cwd();
+  const repoPath = (await repoRoot(given)) ?? given;
 
   let document;
   try {
@@ -74,6 +81,27 @@ async function exportReview(options) {
       ? formatPrompt(document)
       : `${JSON.stringify(document, null, 2)}\n`
   );
+}
+
+/**
+ * Which repository the page should open.
+ *
+ * `reviewer` with no argument reviews the repository you are standing in.
+ * `--help` has promised that since the first release and the code never did
+ * it, so the page opened on an empty path box instead.
+ *
+ * Naming a directory and defaulting to one are answered differently on
+ * purpose. Name one, and you are told when it is not a repository, because
+ * you asked about it. Nobody asked for the current directory in particular —
+ * so when that is not inside a repository the page opens on its picker
+ * exactly as it always has, rather than greeting you with an error.
+ *
+ * @param {string|null} given the repository named on the command line
+ * @returns {Promise<string|null>} repository to open, or null for the picker
+ */
+async function repositoryToOpen(given) {
+  if (given) return (await repoRoot(given)) ?? given;
+  return repoRoot(process.cwd());
 }
 
 async function main() {
@@ -114,11 +142,13 @@ async function main() {
     return exportReview(options);
   }
 
+  const repoPath = await repositoryToOpen(options.repoPath);
+
   const server = await listen(options.port ?? (Number(process.env.PORT) || DEFAULT_PORT));
-  const url = buildUrl(`http://${DEFAULT_HOST}:${server.address().port}`, options.repoPath);
+  const url = buildUrl(`http://${DEFAULT_HOST}:${server.address().port}`, repoPath);
 
   console.log(`\n  Code Reviewer  ${url}`);
-  if (options.repoPath) console.log(`  reviewing      ${options.repoPath}`);
+  if (repoPath) console.log(`  reviewing      ${repoPath}`);
   console.log('\n  Press Ctrl+C to stop.\n');
 
   if (options.open && !(await openInBrowser(url))) {

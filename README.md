@@ -3,7 +3,7 @@
 [![CI](https://github.com/dheerajjha/reviewer/actions/workflows/ci.yml/badge.svg)](https://github.com/dheerajjha/reviewer/actions/workflows/ci.yml)
 [![License: MIT](https://img.shields.io/badge/license-MIT-blue.svg)](LICENSE)
 [![Node](https://img.shields.io/badge/node-%3E%3D18-brightgreen.svg)](package.json)
-[![Tests](https://img.shields.io/badge/tests-206-brightgreen.svg)](test/)
+[![Tests](https://img.shields.io/badge/tests-219-brightgreen.svg)](test/)
 [![Dependencies](https://img.shields.io/badge/dependencies-3-brightgreen.svg)](package.json)
 
 ![Plain grey code lines on the left resolving into colored diff stripes, with threaded comment markers attached in the right margin](docs/banner.jpg)
@@ -43,7 +43,8 @@ comment they answer, and everything is saved as you type.
 reviewer [repository] [options]
 reviewer export [repository] [--format json|prompt]
 
-  repository        Path to a git repository (default: the current directory)
+  repository        A git repository, or any directory inside one
+                    (default: the current directory)
 
   -p, --port <n>    Port to listen on (default 4500; falls back to a free
                     port if that one is taken)
@@ -70,8 +71,14 @@ reviewer .
 ```
 
 The package is `git-reviewer` because `reviewer` and `code-reviewer` were both
-already taken on npm. The command it installs is still `reviewer` -- the
-package name is a distribution detail, the command is the product.
+already taken on npm. It installs the command under both names, so whichever
+one you reach for is the one that is there:
+
+```bash
+reviewer                    # the command
+git-reviewer                # the package name, if that is what you typed
+git reviewer                # git dispatches to it like any other subcommand
+```
 
 From a clone, if you would rather not install anything:
 
@@ -239,7 +246,7 @@ rather than a public issue.
 
 ```bash
 npm install           # 3 dependencies, no build step, ~6MB
-npm test              # 206 tests
+npm test              # 219 tests
 npm run test:watch
 npm run test:coverage
 ```

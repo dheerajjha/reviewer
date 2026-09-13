@@ -784,3 +784,40 @@ test('a text file is still served as lines', async t => {
   assert.equal(body.binary, false);
   assert.ok(body.diffLines.length > 0, 'a changed text file still has diff lines');
 });
+
+test('POST /api/load-repo opens the repository a subdirectory belongs to', async t => {
+  const server = await startTestServer();
+  const repoPath = await createTempRepo();
+  t.after(async () => {
+    await server.close();
+    await cleanup(repoPath);
+  });
+
+  await commitFiles(repoPath, { 'src/deep/app.js': 'one\n' }, 'init');
+  await writeFiles(repoPath, { 'src/deep/app.js': 'one\ntwo\n' });
+
+  const response = await fetch(`${server.url}/api/load-repo`, {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ repoPath: path.join(repoPath, 'src', 'deep') })
+  });
+  const data = await response.json();
+
+  assert.equal(response.status, 200);
+  // Answered with the root, not with what was asked for, so the page can show
+  // which repository it actually opened.
+  assert.equal(data.repoPath, repoPath);
+  assert.deepEqual(data.files.map(file => file.path), ['src/deep/app.js']);
+
+  // The reason any of this matters: the file listed above used to open to
+  // nothing, because its diff was fetched from a git rooted one directory
+  // down and the pathspec matched nothing there.
+  const diff = await (
+    await fetch(`${server.url}/api/file/${data.repoId}/src/deep/app.js`)
+  ).json();
+
+  assert.deepEqual(
+    diff.diffLines.filter(line => line.type !== 'unchanged'),
+    [{ oldLine: null, newLine: 2, type: 'add', content: 'two' }]
+  );
+});

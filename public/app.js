@@ -159,6 +159,11 @@ async function loadRepo() {
     currentRepoId = data.repoId;
     currentFiles = data.files;
 
+    // The server answers with the root of the working tree, which is not
+    // always what was asked for: open a subdirectory and the repository above
+    // it is what gets reviewed. Show the path that is actually loaded.
+    if (data.repoPath) document.getElementById('repoPath').value = data.repoPath;
+
     if (data.files.length === 0) {
       showStatus('No uncommitted changes found in the repository', 'error');
       document.getElementById('loadBtn').disabled = false;

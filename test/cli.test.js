@@ -148,3 +148,15 @@ test('the usage text documents every option the parser accepts', () => {
     assert.ok(USAGE.includes(flag), `usage should mention ${flag}`);
   }
 });
+
+test('the usage names both commands the package installs', () => {
+  assert.match(USAGE, /reviewer and git-reviewer/);
+  assert.match(USAGE, /git reviewer/);
+});
+
+test('the usage promise about the default is the one the command keeps', () => {
+  // This text claimed the current directory long before anything implemented
+  // it. Pinning it here means the claim and the behaviour are changed
+  // together or not at all.
+  assert.match(USAGE, /Defaults to the current\s+directory/);
+});

@@ -18,6 +18,7 @@ const { normalizeComments } = require('./lib/comments');
 const { formatReview, reviewFilename, commentsFilename } = require('./lib/review');
 const { buildReviewDocument } = require('./lib/agent');
 const { readSavedComments, ReviewOwnershipError } = require('./lib/store');
+const { repoRoot } = require('./lib/repo');
 
 const DEFAULT_PORT = 4500;
 const DEFAULT_HOST = '127.0.0.1';
@@ -202,10 +203,15 @@ function createApp(options = {}) {
         return res.status(400).json({ error: 'Path does not exist' });
       }
 
-      const git = gitFactory(repoPath);
-      if (!(await git.checkIsRepo())) {
+      // Resolve to the root of the working tree before anything is keyed on
+      // this path. A subdirectory passes `checkIsRepo()` quite happily and
+      // then produces a file list whose diffs are all empty; see lib/repo.js.
+      const root = await repoRoot(repoPath, gitFactory);
+      if (!root) {
         return res.status(400).json({ error: 'Not a valid git repository' });
       }
+
+      const git = gitFactory(root);
 
       let files = collectWorkingChanges(await git.status());
       let mode = 'working';
@@ -227,10 +233,12 @@ function createApp(options = {}) {
         }
       }
 
-      const repoId = sessions.create(repoPath, mode);
-      console.log(`Loaded repository: ${repoPath} (mode: ${mode})`);
+      const repoId = sessions.create(root, mode);
+      console.log(`Loaded repository: ${root} (mode: ${mode})`);
 
-      res.json({ repoId, files, repoPath, mode, message });
+      // `repoPath` in the response is the resolved root, not what was asked
+      // for, so the page can show which repository it actually opened.
+      res.json({ repoId, files, repoPath: root, mode, message });
     } catch (error) {
       console.error('Load repo error:', error);
       res.status(500).json({ error: error.message });

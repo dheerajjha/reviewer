@@ -6,6 +6,40 @@ adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
 ## [Unreleased]
 
+### Added
+
+- **The command is installed under both of its names.** The package is
+  published as `git-reviewer` — that is what the install line says to type —
+  and the only command it created was `reviewer`, so typing the name you had
+  just installed answered `command not found`. Both names now point at the
+  same entry point, which also hands it to git: `git reviewer` dispatches like
+  any other subcommand.
+
+### Fixed
+
+- **`reviewer` with no argument reviews the repository you are standing in.**
+
+  `--help`, the README and the examples have all said it defaults to the
+  current directory since the first release. The code never did: `repoPath`
+  stayed null, the URL carried no repository, and the page opened on an empty
+  path box waiting to be typed into. Naming a directory is unchanged, including
+  being told when it is not a repository. Defaulting is answered differently —
+  nobody asked for the current directory in particular, so when it is not
+  inside a repository the page opens on its picker rather than on an error.
+
+- **A subdirectory opens the repository above it, instead of a diff of the
+  wrong content.** ([#43](https://github.com/dheerajjha/reviewer/issues/43))
+
+  `git status --porcelain` reports paths relative to the repository root, but a
+  pathspec is resolved relative to the process's directory — so a git rooted at
+  `<repo>/src/deep` was asked to diff `src/deep/app.js`, matched nothing, and
+  answered with an empty string rather than an error. The file was listed, and
+  then opened showing its *committed* contents as though every line were newly
+  added, with the actual change nowhere on screen. Saved reviews are keyed on
+  the repository path too, so `reviewer export` one directory down reported no
+  review for a repository it was standing inside. The server and `export` both
+  resolve to the root of the working tree first.
+
 ## [2.2.0] - 2026-09-13
 
 ### Fixed
