@@ -233,12 +233,25 @@ function displayFiles(files) {
     const filename = parts[parts.length - 1];
     const path = parts.slice(0, -1).join('/');
 
-    // Because of RTL, we need to reverse the order in HTML
-    const displayText = path ? `${path}/<span class="filename">${filename}</span>` : `<span class="filename">${filename}</span>`;
+    // Because of RTL, we need to reverse the order in HTML. The label is
+    // markup -- the name is split so the last segment can be emphasised -- so
+    // both halves are escaped going in. They were not, and a name is chosen by
+    // whatever repository is open: markup in one was drawn as markup, without
+    // anyone clicking anything.
+    const displayText = path
+      ? `${escapeHtml(path)}/<span class="filename">${escapeHtml(filename)}</span>`
+      : `<span class="filename">${escapeHtml(filename)}</span>`;
     const statusClass = status === 'A' ? 'file-status-added' : 'file-status-modified';
     const statusBadge = `<span class="file-status ${statusClass}">${status}</span>`;
 
-    return `<div class="file-item" onclick="loadFile('${file}', ${index})" title="${escapeHtml(file)}">
+    // The row used to carry the file name itself, inside a string literal
+    // inside the attribute the browser evaluates as JavaScript. A name with a
+    // quote in it ended that literal and the rest of the name ran on click
+    // (#46). Escaping cannot close it: entities in an attribute are decoded
+    // before the handler is parsed, so an escaped quote is a quote again by
+    // the time it matters. The row carries its position instead, and the name
+    // is read back out of `currentFiles`, where it stays data.
+    return `<div class="file-item" onclick="openFileAt(${Number(index)})" title="${escapeHtml(file)}">
       ${statusBadge}<span class="file-path-text">${displayText}</span>
     </div>`;
   }).join('');
@@ -250,6 +263,22 @@ function displayFiles(files) {
 
   // Update comments sidebar
   updateCommentsSidebar();
+}
+
+/**
+ * Open the file at a position in the list. The handler the file rows carry.
+ *
+ * `loadFile` still takes a path, because every other caller already has one in
+ * hand and none of them travels through an attribute. This one does, so it
+ * takes the index and looks the path up here. See the note in `displayFiles`.
+ *
+ * @param {number} index position in `currentFiles`
+ */
+function openFileAt(index) {
+  const file = currentFiles[Number(index)];
+  if (!file) return;
+
+  loadFile(file.path, Number(index));
 }
 
 // Load file content
@@ -366,8 +395,13 @@ function displayCode(filePath, diffLines, binary) {
     const clickableLineNum = diffLine.newLine || diffLine.oldLine;
 
     // Make both old and new line numbers clickable
-    const oldLineClick = diffLine.type === 'delete' ? `onclick="toggleCommentInput(${diffLineIndex})"` : '';
-    const newLineClick = diffLine.type !== 'delete' ? `onclick="toggleCommentInput(${diffLineIndex})"` : '';
+    // `Number(...)` at every interpolation into a handler, here and below. The
+    // rule the page now keeps is that nothing but a number goes into an
+    // attribute the browser evaluates as code, and coercing it where it is
+    // written makes that true of the markup rather than true of whatever the
+    // caller happened to pass. See `displayFiles` and #46.
+    const oldLineClick = diffLine.type === 'delete' ? `onclick="toggleCommentInput(${Number(diffLineIndex)})"` : '';
+    const newLineClick = diffLine.type !== 'delete' ? `onclick="toggleCommentInput(${Number(diffLineIndex)})"` : '';
 
     html += `
       <div class="${lineClass}" data-diff-index="${diffLineIndex}">
@@ -381,7 +415,6 @@ function displayCode(filePath, diffLines, binary) {
     `;
 
     if (hasComment) {
-      const selectedTextAttr = hasComment.selectedText ? `'${escapeHtml(hasComment.selectedText).replace(/'/g, "\\'")}'` : 'null';
       const matchTypeClass = hasComment.matchType === 'fuzzy' ? 'comment-box-fuzzy' : '';
       const fuzzyWarning = hasComment.matchType === 'fuzzy' ? `
         <div class="comment-fuzzy-warning">
@@ -412,9 +445,9 @@ function displayCode(filePath, diffLines, binary) {
           <span class="comment-text">${escapeHtml(hasComment.text)}</span>
           ${followUpsHtml}
           <div class="comment-actions">
-            <button class="comment-reply" onclick="addFollowUp(${diffLineIndex})">Reply</button>
-            <button class="comment-edit" onclick="editComment(${diffLineIndex}, ${selectedTextAttr})">Edit</button>
-            <button class="comment-delete" onclick="deleteComment(${diffLineIndex})">Delete</button>
+            <button class="comment-reply" onclick="addFollowUp(${Number(diffLineIndex)})">Reply</button>
+            <button class="comment-edit" onclick="editComment(${Number(diffLineIndex)})">Edit</button>
+            <button class="comment-delete" onclick="deleteComment(${Number(diffLineIndex)})">Delete</button>
           </div>
         </div>
       `;
@@ -423,11 +456,10 @@ function displayCode(filePath, diffLines, binary) {
 
   // Show unmatched comments at the end
   const unmatchedComments = fileComments.filter(c => c.matchType === 'unmatched');
+  unmatchedShown = unmatchedComments;
   if (unmatchedComments.length > 0) {
     html += '<div class="unmatched-comments-section">';
-    unmatchedComments.forEach(comment => {
-      const commentId = `unmatched-${Math.random().toString(36).substr(2, 9)}`;
-
+    unmatchedComments.forEach((comment, unmatchedIndex) => {
       // Generate follow-ups for unmatched comments
       let unmatchedFollowUpsHtml = '';
       if (comment.followUps && comment.followUps.length > 0) {
@@ -444,9 +476,16 @@ function displayCode(filePath, diffLines, binary) {
         unmatchedFollowUpsHtml += '</div>';
       }
 
+      // Every control in here used to carry the comment's file name and text,
+      // quoted into an attribute that is evaluated as JavaScript -- with `'`
+      // replaced by `\'` and nothing else, which a name ending in a backslash
+      // walks straight out of. They carry the row's position instead, and the
+      // three fields are read back from `unmatchedShown`, the array this was
+      // rendered from. The row's random id went with it: the position is the
+      // identifier now.
       html += `
-        <div class="unmatched-comment-item collapsed" id="${commentId}">
-          <div class="unmatched-comment-header" onclick="toggleUnmatchedComment('${commentId}')">
+        <div class="unmatched-comment-item collapsed">
+          <div class="unmatched-comment-header" onclick="toggleUnmatchedComment(${Number(unmatchedIndex)})">
             <span class="unmatched-comment-icon">⚠️</span>
             <span class="unmatched-comment-title">Comment not found (Line ${comment.line} changed)</span>
             <span class="unmatched-comment-toggle">▶</span>
@@ -460,8 +499,8 @@ function displayCode(filePath, diffLines, binary) {
             ${comment.selectedText ? `<div class="comment-item-selected">${escapeHtml(comment.selectedText)}</div>` : ''}
             ${unmatchedFollowUpsHtml}
             <div class="comment-actions">
-              <button class="comment-reply" onclick="addFollowUpToUnmatched('${comment.file.replace(/'/g, "\\'")}', ${comment.line}, '${comment.text.replace(/'/g, "\\'")}')">Reply</button>
-              <button class="comment-delete" onclick="deleteUnmatchedComment('${comment.file.replace(/'/g, "\\'")}', ${comment.line}, '${comment.text.replace(/'/g, "\\'")}')">Delete</button>
+              <button class="comment-reply" onclick="addFollowUpToUnmatched(${Number(unmatchedIndex)})">Reply</button>
+              <button class="comment-delete" onclick="deleteUnmatchedComment(${Number(unmatchedIndex)})">Delete</button>
             </div>
           </div>
         </div>
@@ -480,9 +519,29 @@ function displayCode(filePath, diffLines, binary) {
   codeViewer.addEventListener('mouseup', handleTextSelection);
 }
 
+/**
+ * The unmatched comments the code pane is showing, in the order they were
+ * drawn. The rows below are identified by their position in here, because the
+ * fields that used to identify them -- a file name and the comment's own text
+ * -- cannot be written into a handler attribute safely. See #46.
+ *
+ * @type {object[]}
+ */
+let unmatchedShown = [];
+
+/**
+ * The row an unmatched comment was drawn into.
+ *
+ * @param {number} index position in `unmatchedShown`
+ * @returns {Element|null}
+ */
+function unmatchedRow(index) {
+  return document.querySelectorAll('.unmatched-comment-item')[Number(index)] ?? null;
+}
+
 // Toggle unmatched comment expansion
-function toggleUnmatchedComment(commentId) {
-  const element = document.getElementById(commentId);
+function toggleUnmatchedComment(index) {
+  const element = unmatchedRow(index);
   if (!element) return;
 
   element.classList.toggle('collapsed');
@@ -493,7 +552,11 @@ function toggleUnmatchedComment(commentId) {
 }
 
 // Delete unmatched comment
-function deleteUnmatchedComment(file, line, text) {
+function deleteUnmatchedComment(index) {
+  const target = unmatchedShown[Number(index)];
+  if (!target) return;
+
+  const { file, line, text } = target;
   comments = comments.filter(c => !(c.file === file && c.line === line && c.text === text));
 
   // Auto-save to backend
@@ -530,7 +593,7 @@ function addFollowUp(diffLineIndex) {
   inputBox.innerHTML = `
     <textarea placeholder="Enter your follow-up (Cmd/Ctrl+Enter to save)..." id="followupInput"></textarea>
     <div class="actions">
-      <button onclick="saveFollowUp(${diffLineIndex})">Add Follow-up</button>
+      <button onclick="saveFollowUp(${Number(diffLineIndex)})">Add Follow-up</button>
       <button class="cancel-btn" onclick="this.closest('.followup-input-box').remove()">Cancel</button>
     </div>
   `;
@@ -601,25 +664,17 @@ function saveFollowUp(diffLineIndex) {
 }
 
 // Add follow-up to an unmatched comment
-function addFollowUpToUnmatched(file, line, text) {
+function addFollowUpToUnmatched(index) {
   // Remove any existing follow-up input
   const existingInput = document.querySelector('.followup-input-box');
   if (existingInput) {
     existingInput.remove();
   }
 
-  // Find the unmatched comment element
-  const unmatchedItems = document.querySelectorAll('.unmatched-comment-item');
-  let targetItem = null;
-
-  unmatchedItems.forEach(item => {
-    const itemText = item.querySelector('.comment-text')?.textContent;
-    const itemLine = item.querySelector('.unmatched-comment-title')?.textContent;
-    if (itemText === text && itemLine?.includes(`Line ${line}`)) {
-      targetItem = item;
-    }
-  });
-
+  // The row this belongs to, by position. It used to be found by comparing the
+  // rendered text against the comment's own text, which picked the wrong row
+  // when two unmatched comments on a file said the same thing on the same line.
+  const targetItem = unmatchedRow(index);
   if (!targetItem) return;
 
   const commentBody = targetItem.querySelector('.unmatched-comment-body');
@@ -629,13 +684,15 @@ function addFollowUpToUnmatched(file, line, text) {
   const inputBox = document.createElement('div');
   inputBox.className = 'followup-input-box';
 
-  // Generate unique ID for this specific input
-  const inputId = `followupInput-${Math.random().toString(36).substr(2, 9)}`;
+  // The input is named after the row, which is one number, so the button that
+  // saves it needs to carry nothing but that number. It used to carry the file
+  // name, the comment text and a random id, all quoted into the handler.
+  const inputId = `followupInput-${Number(index)}`;
 
   inputBox.innerHTML = `
     <textarea placeholder="Enter your follow-up (Cmd/Ctrl+Enter to save)..." id="${inputId}"></textarea>
     <div class="actions">
-      <button onclick="saveFollowUpToUnmatched('${file.replace(/'/g, "\\'")}', ${line}, '${text.replace(/'/g, "\\'")}', '${inputId}')">Add Follow-up</button>
+      <button onclick="saveFollowUpToUnmatched(${Number(index)})">Add Follow-up</button>
       <button class="cancel-btn" onclick="this.closest('.followup-input-box').remove()">Cancel</button>
     </div>
   `;
@@ -662,7 +719,7 @@ function addFollowUpToUnmatched(file, line, text) {
   textarea.addEventListener('keydown', (e) => {
     if ((e.metaKey || e.ctrlKey) && e.key === 'Enter') {
       e.preventDefault();
-      saveFollowUpToUnmatched(file, line, text, inputId);
+      saveFollowUpToUnmatched(index);
     }
     if (e.key === 'Escape') {
       e.preventDefault();
@@ -672,8 +729,8 @@ function addFollowUpToUnmatched(file, line, text) {
 }
 
 // Save follow-up to an unmatched comment
-function saveFollowUpToUnmatched(file, line, text, inputId) {
-  const input = document.getElementById(inputId);
+function saveFollowUpToUnmatched(index) {
+  const input = document.getElementById(`followupInput-${Number(index)}`);
   const followUpText = input?.value.trim();
 
   if (!followUpText) {
@@ -681,7 +738,10 @@ function saveFollowUpToUnmatched(file, line, text, inputId) {
     return;
   }
 
-  const comment = comments.find(c => c.file === file && c.line === line && c.text === text);
+  // The row's position, not the three fields that used to be quoted into the
+  // button. `unmatchedShown` holds the same objects `comments` does, so the
+  // follow-up is pushed onto the comment itself rather than onto a copy.
+  const comment = unmatchedShown[Number(index)];
   if (!comment) return;
 
   // Initialize followUps if it doesn't exist
@@ -701,9 +761,9 @@ function saveFollowUpToUnmatched(file, line, text, inputId) {
   updateCommentsSidebar();
 
   // Reload the current file to show the follow-up
-  if (currentFile === file) {
-    const fileIndex = currentFiles.findIndex(f => f.path === file);
-    loadFile(file, fileIndex);
+  if (currentFile === comment.file) {
+    const fileIndex = currentFiles.findIndex(f => f.path === comment.file);
+    loadFile(comment.file, fileIndex);
   }
 }
 
@@ -787,6 +847,25 @@ function handleTextSelection(e) {
   toggleCommentInputWithSelection(diffLineIndex, selectedText);
 }
 
+/**
+ * The selected code, as an attribute on the button that saves it.
+ *
+ * The save button used to carry the selection inside a template literal inside
+ * its handler, which is a JavaScript context: a `${` in the selected code
+ * opened an interpolation and ran whatever followed it, and the file being
+ * reviewed is where that code comes from. The selection is not an index into
+ * anything -- it is a fragment of a live selection -- so it travels as data on
+ * the element and the handler reads it back at click time. A `data-` attribute
+ * is an attribute and nothing more; `escapeHtml` is enough for it, and the
+ * browser hands the original string back through `dataset`.
+ *
+ * @param {string|null} selectedText
+ * @returns {string} an attribute to splice into the tag, or nothing
+ */
+function selectedTextData(selectedText) {
+  return selectedText ? ` data-selected-text="${escapeHtml(selectedText)}"` : '';
+}
+
 // Toggle comment input
 function toggleCommentInput(diffLineIndex) {
   toggleCommentInputWithSelection(diffLineIndex, null);
@@ -820,7 +899,7 @@ function toggleCommentInputWithSelection(diffLineIndex, selectedText = null) {
     ${selectedTextHtml}
     <textarea placeholder="Enter your comment (Cmd/Ctrl+Enter to save)..." id="commentInput"></textarea>
     <div class="actions">
-      <button onclick="saveComment(${diffLineIndex}, ${selectedText ? `\`${escapeHtml(selectedText).replace(/`/g, '\\`')}\`` : 'null'})">Save Comment</button>
+      <button${selectedTextData(selectedText)} onclick="saveComment(${Number(diffLineIndex)}, this.dataset.selectedText ?? null)">Save Comment</button>
       <button class="cancel-btn" onclick="this.closest('.comment-input-box').remove()">Cancel</button>
     </div>
   `;
@@ -893,9 +972,16 @@ function saveComment(diffLineIndex, selectedText = null) {
 }
 
 // Edit comment
-function editComment(diffLineIndex, selectedText = null) {
+function editComment(diffLineIndex) {
   const comment = comments.find(c => c.file === currentFile && c.diffLineIndex === diffLineIndex);
   if (!comment) return;
+
+  // The Edit button used to hand the selected code back in as an argument,
+  // quoted into its own handler -- and after `escapeHtml` learned to escape
+  // quotes, the hand-rolled backslash escaping beside it stopped matching
+  // anything at all, so a quote in the selected code ended the literal and the
+  // rest ran. The comment is looked up here anyway; the selection comes off it.
+  const selectedText = comment.selectedText ?? null;
 
   // Remove the comment from the list temporarily
   comments = comments.filter(c => !(c.file === currentFile && c.diffLineIndex === diffLineIndex));
@@ -921,7 +1007,7 @@ function editComment(diffLineIndex, selectedText = null) {
       ${selectedTextHtml}
       <textarea placeholder="Enter your comment (Cmd/Ctrl+Enter to save)..." id="commentInput">${escapeHtml(comment.text)}</textarea>
       <div class="actions">
-        <button onclick="saveComment(${diffLineIndex}, ${selectedText ? `\`${escapeHtml(selectedText).replace(/`/g, '\\`')}\`` : 'null'})">Save Comment</button>
+        <button${selectedTextData(selectedText)} onclick="saveComment(${Number(diffLineIndex)}, this.dataset.selectedText ?? null)">Save Comment</button>
         <button class="cancel-btn" onclick="this.closest('.comment-input-box').remove()">Cancel</button>
       </div>
     `;
@@ -1022,8 +1108,8 @@ function showReviewModal(reviewContent, filename) {
         <pre class="review-text">${escapeHtml(reviewContent)}</pre>
       </div>
       <div class="review-modal-footer">
-        <button onclick="downloadReview('${filename}', this.closest('.review-modal').querySelector('.review-text').textContent)">
-          Download ${filename}
+        <button data-filename="${escapeHtml(filename)}" onclick="downloadReview(this.dataset.filename, this.closest('.review-modal').querySelector('.review-text').textContent)">
+          Download ${escapeHtml(filename)}
         </button>
         <button onclick="copyReviewToClipboard(this.closest('.review-modal').querySelector('.review-text').textContent)">
           Copy to Clipboard
@@ -1223,20 +1309,19 @@ function displayFullContext(filePath, lines) {
         ${hasComment ? '<span class="comment-indicator"></span>' : ''}
         <div class="line-numbers">
           <span class="old-line-number">${diffLine.oldLine || ''}</span>
-          <span class="new-line-number" ${diffLineIndex !== undefined ? `onclick="toggleCommentInput(${diffLineIndex})"` : ''}>${diffLine.newLine || ''}</span>
+          <span class="new-line-number" ${diffLineIndex !== undefined ? `onclick="toggleCommentInput(${Number(diffLineIndex)})"` : ''}>${diffLine.newLine || ''}</span>
         </div>
         <div class="line-content">${escapeHtml(diffLine.content) || ' '}</div>
       </div>
     `;
 
     if (hasComment) {
-      const selectedTextAttr = hasComment.selectedText ? `'${escapeHtml(hasComment.selectedText).replace(/'/g, "\\'")}'` : 'null';
       html += `
         <div class="comment-box">
           <span class="comment-text">${escapeHtml(hasComment.text)}</span>
           <div class="comment-actions">
-            <button class="comment-edit" onclick="editComment(${diffLineIndex}, ${selectedTextAttr})">Edit</button>
-            <button class="comment-delete" onclick="deleteComment(${diffLineIndex})">Delete</button>
+            <button class="comment-edit" onclick="editComment(${Number(diffLineIndex)})">Edit</button>
+            <button class="comment-delete" onclick="deleteComment(${Number(diffLineIndex)})">Delete</button>
           </div>
         </div>
       `;
@@ -1373,11 +1458,16 @@ function updateCommentsSidebar() {
           ? `<div class="comment-item-selected">${escapeHtml(comment.selectedText)}</div>`
           : '';
 
-        const fileEscaped = file.replace(/'/g, "\\'");
+        // Both controls used to carry the file name, quoted into a handler
+        // with `'` replaced by `\'` and nothing else -- so a name with a
+        // backslash before the quote escaped the escape and ended the string
+        // anyway. A comment's identity here is its position in `comments`,
+        // and that is a number. See #46.
+        const commentIndex = comments.indexOf(comment);
         html += `
           <div class="comment-item">
-            <button class="comment-item-delete" onclick="event.stopPropagation(); deleteCommentFromSidebar('${fileEscaped}', ${comment.diffLineIndex})" title="Delete comment">×</button>
-            <div class="comment-item-content" onclick="jumpToComment('${fileEscaped}', ${comment.diffLineIndex})">
+            <button class="comment-item-delete" onclick="event.stopPropagation(); deleteCommentFromSidebar(${Number(commentIndex)})" title="Delete comment">×</button>
+            <div class="comment-item-content" onclick="jumpToComment(${Number(commentIndex)})">
               <div class="comment-item-file">${escapeHtml(file)}</div>
               <div class="comment-item-line">Line ${comment.line}</div>
               <div class="comment-item-text">${escapeHtml(comment.text)}</div>
@@ -1392,7 +1482,11 @@ function updateCommentsSidebar() {
 }
 
 // Delete comment from sidebar
-function deleteCommentFromSidebar(file, diffLineIndex) {
+function deleteCommentFromSidebar(commentIndex) {
+  const target = comments[Number(commentIndex)];
+  if (!target) return;
+
+  const { file, diffLineIndex } = target;
   comments = comments.filter(c => !(c.file === file && c.diffLineIndex === diffLineIndex));
 
   // Auto-save to backend
@@ -1409,7 +1503,12 @@ function deleteCommentFromSidebar(file, diffLineIndex) {
 }
 
 // Jump to a specific comment
-function jumpToComment(file, diffLineIndex) {
+function jumpToComment(commentIndex) {
+  const target = comments[Number(commentIndex)];
+  if (!target) return;
+
+  const { file, diffLineIndex } = target;
+
   // Find the file index
   const fileIndex = currentFiles.findIndex(f => f.path === file);
   if (fileIndex === -1) return;

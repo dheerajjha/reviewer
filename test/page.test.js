@@ -62,3 +62,84 @@ test('the picker declares the containers its listeners are attached to', () => {
     assert.match(html, new RegExp(`id="${id}"`), `#${id} is missing from public/index.html`);
   }
 });
+
+/**
+ * Nothing but a number goes into an attribute the browser evaluates as code.
+ *
+ * `public/app.js` builds its markup as strings, and the click handlers in that
+ * markup are JavaScript source. A value interpolated into one is not a value,
+ * it is code: a file name carrying a quote ended the string literal it was
+ * written into and the rest of the name ran on click (#46). HTML escaping does
+ * not help, because a browser decodes the entities in an attribute *before*
+ * handing what is left to the JavaScript parser -- `&#39;` is a quote again by
+ * then. The sites were found by hand once; this is what keeps them found.
+ *
+ * A number cannot carry a quote, so the rule is that a handler takes indices
+ * and looks the strings up in the page's own state, and anything that is not
+ * an index travels in a `data-` attribute instead and is read from the DOM
+ * when the handler runs.
+ */
+
+/**
+ * Every `on<event>="..."` attribute written by the script.
+ *
+ * Handler bodies here quote with `'`, so an attribute ends at the next `"` --
+ * which also means a handler that needs a double quote inside it is reported
+ * truncated rather than skipped. Erring towards reporting is the right way
+ * round for this one.
+ *
+ * @param {string} source
+ * @returns {{line: number, attribute: string, body: string}[]}
+ */
+function inlineHandlers(source) {
+  return [...source.matchAll(/\bon[a-z]+="([^"]*)"/g)].map(match => ({
+    line: source.slice(0, match.index).split('\n').length,
+    attribute: match[0],
+    body: match[1]
+  }));
+}
+
+test('no string is interpolated into an inline handler', () => {
+  const app = fs.readFileSync(APP_JS, 'utf-8');
+
+  const offenders = inlineHandlers(app)
+    .filter(handler => /'\$\{|`\$\{/.test(handler.body))
+    .map(handler => `public/app.js:${handler.line}  ${handler.attribute}`);
+
+  assert.deepEqual(
+    offenders,
+    [],
+    `A quoted string is built inside a handler attribute:\n${offenders.join('\n')}\n` +
+      'Whatever goes in there is parsed as JavaScript when the handler runs, ' +
+      'and escaping cannot make it safe -- the entities are decoded first. ' +
+      'Pass an index instead and look the string up inside the handler, or ' +
+      'put it in a `data-` attribute on the element and read it from the DOM.'
+  );
+});
+
+test('every value interpolated into an inline handler is coerced to a number', () => {
+  // The rule holds by construction rather than by provenance: `${Number(i)}`
+  // is a number whatever `i` turns out to be, and a reader of the markup does
+  // not have to go and find out where `i` came from to know that. It also
+  // catches the case the test above cannot see -- an unquoted `${name}` is
+  // still an expression the browser will run.
+  const app = fs.readFileSync(APP_JS, 'utf-8');
+
+  const offenders = [];
+  for (const handler of inlineHandlers(app)) {
+    for (const interpolation of handler.body.matchAll(/\$\{\s*([^}]*)/g)) {
+      if (!/^Number\(/.test(interpolation[1])) {
+        offenders.push(`public/app.js:${handler.line}  \${${interpolation[1]}...`);
+      }
+    }
+  }
+
+  assert.deepEqual(
+    offenders,
+    [],
+    `Uncoerced interpolation inside a handler attribute:\n${offenders.join('\n')}\n` +
+      'Wrap it in `Number(...)` where it is written, so the attribute cannot ' +
+      'carry anything but a number. If the value is not a number, it does not ' +
+      'belong in the handler at all -- see the note above this test.'
+  );
+});
