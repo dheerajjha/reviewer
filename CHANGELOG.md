@@ -33,6 +33,18 @@ adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
 ### Fixed
 
+- **A file or folder name containing a quote can no longer break out of the
+  attribute it is written into.** The page escapes values with `escapeHtml`,
+  which escaped `&`, `<` and `>` — the DOM's own rules for a text node — and
+  left both quote characters alone. Most of the callers are attributes, where
+  a double quote ends the attribute early and everything after it in the name
+  is read as markup. It now escapes quotes as well.
+
+  This is the attribute half of the problem. Values interpolated into inline
+  `onclick` handlers are a second, separate one: HTML escaping cannot fix a JS
+  string context, because the entities are decoded before the handler is
+  parsed. That is tracked and fixed separately.
+
 - **`reviewer` with no argument reviews the repository you are standing in.**
 
   `--help`, the README and the examples have all said it defaults to the

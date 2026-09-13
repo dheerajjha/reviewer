@@ -1238,9 +1238,18 @@ function displayFullContext(filePath, lines) {
 
 // Escape HTML
 function escapeHtml(text) {
-  const div = document.createElement('div');
-  div.textContent = text;
-  return div.innerHTML;
+  // The DOM does this for &, < and > and leaves both quote characters alone,
+  // which is right for a text node and wrong for an attribute -- and most of
+  // the callers here are attributes. A file or folder whose name contained a
+  // double quote closed the attribute early, and everything after it in the
+  // name was read as markup. Escaped here rather than at each call site,
+  // because the safe version has to be the one that is easy to reach for.
+  return String(text ?? '')
+    .replace(/&/g, '&amp;')
+    .replace(/</g, '&lt;')
+    .replace(/>/g, '&gt;')
+    .replace(/"/g, '&quot;')
+    .replace(/'/g, '&#39;');
 }
 
 // Sidebar resize functionality
