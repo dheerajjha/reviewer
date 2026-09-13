@@ -6,7 +6,30 @@ adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
 ## [Unreleased]
 
+## [2.2.0] - 2026-09-13
+
 ### Fixed
+
+- **Two comments on the same line no longer export with the same `id`.**
+  ([#26](https://github.com/dheerajjha/reviewer/issues/26))
+
+  `comments[].id` was `<file>:<line>`, on the premise that the UI anchors one
+  comment per line. In a diff the removed line and the line that replaced it
+  can carry the same number, one on each side, and commenting on both is two
+  ordinary clicks — so the document held two different comments under one id,
+  and a consumer keyed by id silently kept one of them. The first comment on a
+  line keeps the bare `<file>:<line>`; only a genuine collision gets a `#2`
+  suffix, so nothing already consuming these ids churns.
+
+- **A binary file is no longer served as decoded text.**
+  ([#23](https://github.com/dheerajjha/reviewer/issues/23))
+
+  `GET /api/file` decoded every blob as UTF-8, so a 2 KB PNG came back as ten
+  `add` lines that were roughly 45% U+FFFD — and a comment left on one of them
+  exported an `anchor` that can never match the file again, which is what
+  `docs/agent-format.md` tells consumers to locate comments by. The response
+  now carries `binary: true` with no lines, decided from git's own diff output
+  rather than a second opinion about the bytes, and the UI says so.
 
 - **`reviewer export --file` accepts the path however it is spelled.** `./src/auth.js`,
   `src//auth.js`, `src\auth.js` and absolute paths inside the repository used to
