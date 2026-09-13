@@ -8,6 +8,20 @@ adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
 ### Fixed
 
+- **A deleted comment stays deleted, and an edited one is not duplicated.**
+  ([#52](https://github.com/dheerajjha/reviewer/issues/52))
+
+  The page kept a second copy of the review — a snapshot taken when the
+  repository was opened and never updated — and re-matched against it on every
+  render, adding back anything missing from the live list. Deleting reached
+  disk and was then put back on screen, and the next save wrote it back over
+  the deletion. Editing was worse: the text no longer matched the snapshot, so
+  the pre-edit copy was re-added *alongside* the edited one, and
+  `reviewer export` handed a coding agent two contradictory instructions about
+  the same line.
+
+  There is one list now. A comment that is not in it does not exist.
+
 - **`POST /api/save-comments` rejects a comment with no file, line or text.**
   It answers 400 naming the field and the comment's index instead of saving it,
   so a malformed comment can no longer reach `reviewer export` as a comment on

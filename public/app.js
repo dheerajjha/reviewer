@@ -180,8 +180,10 @@ async function loadRepo() {
     // Load saved comments
     const savedComments = await loadCommentsFromBackend();
     if (savedComments.length > 0) {
-      // Store saved comments in a global variable for matching later
-      window.savedComments = savedComments;
+      // These went into `window.savedComments` as well, as a second copy for
+      // the matcher to read. Nothing reads it now, and leaving a stale copy of
+      // the review lying around is how the resurrection happened in the first
+      // place -- so there is one list, and it is this one.
 
       // Add all saved comments to the comments array immediately
       comments = savedComments.map(c => ({
@@ -308,9 +310,20 @@ async function loadFile(filePath, index) {
       throw new Error(data.error || 'Failed to load file');
     }
 
-    // Match saved comments to current diff if available
-    if (window.savedComments && window.savedComments.length > 0) {
-      const matchedComments = matchCommentsToDiff(window.savedComments, filePath, data.diffLines);
+    // Give this file's comments their position in the diff just rendered.
+    //
+    // The source here used to be `window.savedComments`, a snapshot taken when
+    // the repository was opened and never updated again. Everything else works
+    // from `comments`, the live list -- so a comment you deleted was still in
+    // the snapshot, was not found in the live list, and the branch below added
+    // it straight back. It vanished from disk and reappeared on screen, and
+    // the next save wrote the resurrected copy back over the deletion. Editing
+    // one did the same thing by a different route: the text no longer matched,
+    // so the pre-edit copy was added alongside the edited one (#52).
+    //
+    // `comments` is what exists. A comment that is not in it does not exist.
+    if (comments.length > 0) {
+      const matchedComments = matchCommentsToDiff(comments, filePath, data.diffLines);
 
       // Update existing comments in the array with matched diff indices
       matchedComments.forEach(mc => {
@@ -330,6 +343,10 @@ async function loadFile(filePath, index) {
             existing.followUps = mc.followUps;
           }
         } else {
+          // Unreachable now that the matcher is fed the live list: everything
+          // it returns came from there. Kept as a guard rather than removed,
+          // because silently dropping a comment is the worse failure of the
+          // two, and this is the line that would do it.
           // Add new comment if it doesn't exist
           comments.push({
             file: mc.file,
