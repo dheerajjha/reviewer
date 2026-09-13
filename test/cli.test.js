@@ -132,14 +132,25 @@ test('buildUrl returns the bare origin when no repository was named', () => {
 test('buildUrl passes the repository as an encoded query parameter', () => {
   assert.equal(
     buildUrl('http://127.0.0.1:4500', '/work/my api'),
-    'http://127.0.0.1:4500/?repo=%2Fwork%2Fmy%20api'
+    'http://127.0.0.1:4500/?repo=/work/my%20api'
   );
+});
+
+test('buildUrl leaves slashes alone, so the printed URL is readable', () => {
+  // This URL is the most prominent thing the command prints. Percent-encoding
+  // every separator made it %2F soup for no benefit: a slash is legal in a
+  // query value.
+  const url = buildUrl('http://127.0.0.1:4500', '/Users/you/work/api');
+
+  assert.equal(url, 'http://127.0.0.1:4500/?repo=/Users/you/work/api');
+  assert.doesNotMatch(url, /%2F/i);
+  assert.equal(new URL(url).searchParams.get('repo'), '/Users/you/work/api');
 });
 
 test('buildUrl encodes characters that would otherwise split the query', () => {
   const url = buildUrl('http://127.0.0.1:4500', '/work/a&b=c?d');
 
-  assert.equal(url, 'http://127.0.0.1:4500/?repo=%2Fwork%2Fa%26b%3Dc%3Fd');
+  assert.equal(url, 'http://127.0.0.1:4500/?repo=/work/a%26b%3Dc%3Fd');
   assert.equal(new URL(url).searchParams.get('repo'), '/work/a&b=c?d');
 });
 
