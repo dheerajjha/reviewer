@@ -6,6 +6,8 @@ adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
 ## [Unreleased]
 
+## [2.3.0] - 2026-09-14
+
 ### Added
 
 - **A picker, for when you are not standing in a repository.** The page used to
@@ -50,6 +52,44 @@ adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
   comments are in hand, or it would render without them. Reloading a
   repository keeps you on the file you were reading.
 
+- **`reviewer` with no argument reviews the repository you are standing in.**
+
+  `--help`, the README and the examples have all said it defaults to the
+  current directory since the first release. The code never did: `repoPath`
+  stayed null, the URL carried no repository, and the page opened on an empty
+  path box waiting to be typed into. Naming a directory is unchanged, including
+  being told when it is not a repository. Defaulting is answered differently —
+  nobody asked for the current directory in particular, so when it is not
+  inside a repository the page opens on its picker rather than on an error.
+
+- **A subdirectory opens the repository above it, instead of a diff of the
+  wrong content.** ([#43](https://github.com/dheerajjha/reviewer/issues/43))
+
+  `git status --porcelain` reports paths relative to the repository root, but a
+  pathspec is resolved relative to the process's directory — so a git rooted at
+  `<repo>/src/deep` was asked to diff `src/deep/app.js`, matched nothing, and
+  answered with an empty string rather than an error. The file was listed, and
+  then opened showing its *committed* contents as though every line were newly
+  added, with the actual change nowhere on screen. Saved reviews are keyed on
+  the repository path too, so `reviewer export` one directory down reported no
+  review for a repository it was standing inside. The server and `export` both
+  resolve to the root of the working tree first.
+
+- **The picker shows where a project lives, not all of where it lives.** Every
+  row printed the whole absolute path, so the first forty characters were the
+  same on each one and the part that identifies it was what got cut off. Rows
+  now show the containing directory with the home directory as `~`, and keep
+  the full path in the tooltip.
+
+- **The URL the command prints is readable again.** `encodeURIComponent`
+  escapes slashes, which a query value does not need — RFC 3986 has
+  `query = *( pchar / "/" / "?" )` — so the most prominent line on screen read
+  `?repo=%2FUsers%2Fyou%2Fwork%2Fapi`. Everything else is still encoded,
+  including the characters that would otherwise end the query and take the rest
+  of the path with them.
+
+### Security
+
 - **A file name is data, not the source of the handler that opens it.**
   ([#46](https://github.com/dheerajjha/reviewer/issues/46))
 
@@ -85,36 +125,6 @@ adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
   `onclick` handlers are a second, separate one: HTML escaping cannot fix a JS
   string context, because the entities are decoded before the handler is
   parsed. That is tracked and fixed separately.
-
-- **`reviewer` with no argument reviews the repository you are standing in.**
-
-  `--help`, the README and the examples have all said it defaults to the
-  current directory since the first release. The code never did: `repoPath`
-  stayed null, the URL carried no repository, and the page opened on an empty
-  path box waiting to be typed into. Naming a directory is unchanged, including
-  being told when it is not a repository. Defaulting is answered differently —
-  nobody asked for the current directory in particular, so when it is not
-  inside a repository the page opens on its picker rather than on an error.
-
-- **A subdirectory opens the repository above it, instead of a diff of the
-  wrong content.** ([#43](https://github.com/dheerajjha/reviewer/issues/43))
-
-  `git status --porcelain` reports paths relative to the repository root, but a
-  pathspec is resolved relative to the process's directory — so a git rooted at
-  `<repo>/src/deep` was asked to diff `src/deep/app.js`, matched nothing, and
-  answered with an empty string rather than an error. The file was listed, and
-  then opened showing its *committed* contents as though every line were newly
-  added, with the actual change nowhere on screen. Saved reviews are keyed on
-  the repository path too, so `reviewer export` one directory down reported no
-  review for a repository it was standing inside. The server and `export` both
-  resolve to the root of the working tree first.
-
-- **The URL the command prints is readable again.** `encodeURIComponent`
-  escapes slashes, which a query value does not need — RFC 3986 has
-  `query = *( pchar / "/" / "?" )` — so the most prominent line on screen read
-  `?repo=%2FUsers%2Fyou%2Fwork%2Fapi`. Everything else is still encoded,
-  including the characters that would otherwise end the query and take the rest
-  of the path with them.
 
 ## [2.2.0] - 2026-09-13
 
@@ -348,6 +358,9 @@ Initial release: Electron desktop app and web mode for reviewing local git
 changes with inline comments, threaded follow-ups, persistent storage, and a
 GitHub-style diff view.
 
-[Unreleased]: https://github.com/dheerajjha/reviewer/compare/v2.0.0...HEAD
+[Unreleased]: https://github.com/dheerajjha/reviewer/compare/v2.3.0...HEAD
+[2.3.0]: https://github.com/dheerajjha/reviewer/compare/v2.2.0...v2.3.0
+[2.2.0]: https://github.com/dheerajjha/reviewer/compare/v2.1.0...v2.2.0
+[2.1.0]: https://github.com/dheerajjha/reviewer/compare/v2.0.0...v2.1.0
 [2.0.0]: https://github.com/dheerajjha/reviewer/releases/tag/v2.0.0
 [1.1.0]: https://github.com/dheerajjha/reviewer/releases/tag/v1.1.0

@@ -4,7 +4,7 @@ const test = require('node:test');
 const assert = require('node:assert/strict');
 const path = require('node:path');
 
-const { resolveRepoFile, PathEscapeError } = require('../lib/paths');
+const { resolveRepoFile, PathEscapeError, homeRelative } = require('../lib/paths');
 
 const REPO = path.resolve('/tmp/repo');
 
@@ -191,3 +191,27 @@ function copyMissing(from, to) {
   }
   return n;
 }
+
+test('homeRelative writes the home directory as ~', () => {
+  const home = '/Users/someone';
+
+  assert.equal(homeRelative('/Users/someone/work/api', home), '~/work/api');
+  assert.equal(homeRelative('/Users/someone', home), '~');
+});
+
+test('homeRelative leaves a path outside the home directory alone', () => {
+  const home = '/Users/someone';
+
+  assert.equal(homeRelative('/opt/src/api', home), '/opt/src/api');
+  // A sibling whose name merely starts with the home directory's is not
+  // inside it: `/Users/someone-else` must not become `~-else`.
+  assert.equal(homeRelative('/Users/someone-else/api', home), '/Users/someone-else/api');
+});
+
+test('homeRelative resolves before comparing, and survives nonsense', () => {
+  const home = '/Users/someone';
+
+  assert.equal(homeRelative('/Users/someone/work/../work/api', home), '~/work/api');
+  assert.equal(homeRelative('', home), process.cwd());
+  assert.equal(homeRelative(null, home), process.cwd());
+});

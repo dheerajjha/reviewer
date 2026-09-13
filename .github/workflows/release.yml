@@ -77,10 +77,23 @@ jobs:
         run: |
           npm pack --silent
           tar -tzf git-reviewer-*.tgz > /tmp/files.txt
-          for required in package/bin/reviewer.js package/server.js package/lib/review.js package/lib/store.js package/lib/agent.js package/lib/paths.js package/lib/export.js package/public/index.html; do
+
+          # Every lib/ module, derived from what is in the tree rather than
+          # listed here. A hand-written list is the thing that goes stale: this
+          # step was added with seven modules named in it and three more were
+          # written before anyone looked at it again.
+          for module in lib/*.js; do
+            grep -qx "package/$module" /tmp/files.txt \
+              || { echo "::error::$module missing from the tarball"; exit 1; }
+          done
+
+          # The entry points, which are named because they are named in
+          # package.json and would not be found by a glob over lib/.
+          for required in package/bin/reviewer.js package/server.js package/public/index.html package/public/app.js package/public/style.css; do
             grep -qx "$required" /tmp/files.txt || { echo "::error::$required missing from the tarball"; exit 1; }
           done
-          echo "tarball contents verified ($(wc -l < /tmp/files.txt) entries)"
+
+          echo "tarball contents verified ($(wc -l < /tmp/files.txt) entries, $(ls lib/*.js | wc -l) lib modules)"
 
       # Install the tarball into a clean prefix and run the real binary, so a
       # broken entry point cannot reach the registry.

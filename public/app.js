@@ -1734,7 +1734,7 @@ async function loadRecent() {
              title="${escapeHtml(project.path)}">
           <span class="picker-row-icon">${project.exists ? '▸' : '×'}</span>
           <span class="picker-row-name">${escapeHtml(project.name)}</span>
-          <span class="picker-row-path">${escapeHtml(project.path)}</span>
+          <span class="picker-row-path">${escapeHtml(project.location ?? '')}</span>
           <span class="picker-row-meta">${escapeHtml(meta)}</span>
         </div>`;
     })
@@ -1763,7 +1763,7 @@ async function loadBrowse(path) {
   browseParent = listing.parent;
   browseIsRepository = listing.isRepository;
 
-  document.getElementById('browsePath').textContent = listing.path;
+  document.getElementById('browsePath').textContent = listing.display ?? listing.path;
   document.getElementById('browseUpBtn').disabled = listing.parent === null;
   document
     .getElementById('browseOpenBtn')

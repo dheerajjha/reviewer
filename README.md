@@ -3,10 +3,8 @@
 [![CI](https://github.com/dheerajjha/reviewer/actions/workflows/ci.yml/badge.svg)](https://github.com/dheerajjha/reviewer/actions/workflows/ci.yml)
 [![License: MIT](https://img.shields.io/badge/license-MIT-blue.svg)](LICENSE)
 [![Node](https://img.shields.io/badge/node-%3E%3D18-brightgreen.svg)](package.json)
-[![Tests](https://img.shields.io/badge/tests-258-brightgreen.svg)](test/)
+[![Tests](https://img.shields.io/badge/tests-261-brightgreen.svg)](test/)
 [![Dependencies](https://img.shields.io/badge/dependencies-3-brightgreen.svg)](package.json)
-
-![Plain grey code lines on the left resolving into colored diff stripes, with threaded comment markers attached in the right margin](docs/banner.jpg)
 
 When an agent writes the code, reading it becomes the bottleneck — and the tool
 built for reading a diff, the pull request, wants a branch, a remote and a push
@@ -18,13 +16,21 @@ mean, with no branch, no remote, no push and no account. Then it hands the
 marked-up review back to the agent to act on.
 
 ```bash
-npx git-reviewer .                       # read the diff, leave comments
-npx git-reviewer export . --format prompt | claude -p "Apply this review."
+npm install -g git-reviewer
+
+cd ~/your-project
+reviewer                                            # read the diff, comment on it
+reviewer export . --format prompt | claude -p "Apply this review."
 ```
 
-The first command starts a local server and opens your browser on the
-repository you named. Nothing is installed into the project, there is nothing
-to sign in to, and nothing leaves your machine.
+![A terminal installing git-reviewer and running it inside a project; the browser opens on the diff with the first changed file already showing; two review comments are written inline, one with a threaded follow-up; then reviewer export prints those same comments back for a coding agent to act on](docs/demo.gif)
+
+*The whole loop, unedited and in real time — [full resolution](docs/demo.mp4).*
+
+`reviewer` starts a local server and opens your browser on the repository you
+are standing in. Nothing is installed into the project, there is nothing to
+sign in to, and nothing leaves your machine. If you would rather not install
+it, `npx git-reviewer` works the same way.
 
 Comments persist between sessions and survive the code moving underneath them —
 including the agent's own edits, which shift every line below the first change —
@@ -79,6 +85,8 @@ this refuse a request a browser says came from another origin.
 The header leads with the repository you have open; click it to switch. Beside
 it is a small keyboard icon that reveals a path box, for when the path is
 already on your clipboard and a navigator is the slow way round.
+
+![The picker: a Recent list of previously opened repositories, each showing where it lives and how many comments are saved against it, above a Browse list walking the filesystem with git repositories marked](docs/screenshot-picker.png)
 
 To install it as a command rather than running it through `npx`:
 
@@ -263,7 +271,7 @@ rather than a public issue.
 
 ```bash
 npm install           # 3 dependencies, no build step, ~6MB
-npm test              # 258 tests
+npm test              # 261 tests
 npm run test:watch
 npm run test:coverage
 ```
