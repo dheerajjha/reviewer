@@ -27,6 +27,29 @@
   </header>
 
   <div class="main-container">
+    <section id="picker" class="picker">
+      <div class="picker-card">
+        <h2>Open a repository</h2>
+
+        <section id="recentSection" class="picker-section hidden">
+          <h3>Recent</h3>
+          <div id="recentList" class="picker-list"></div>
+        </section>
+
+        <section class="picker-section picker-browse">
+          <h3>Browse</h3>
+          <div class="picker-toolbar">
+            <button id="browseUpBtn" class="picker-up" onclick="browseUp()">Up</button>
+            <span id="browsePath" class="picker-current"></span>
+            <button id="browseOpenBtn" class="picker-open hidden" onclick="openBrowsed()">
+              Open this repository
+            </button>
+          </div>
+          <div id="browseList" class="picker-list picker-list-scroll"></div>
+        </section>
+      </div>
+    </section>
+
     <aside id="sidebar" class="sidebar hidden">
       <div class="sidebar-header">
         <h2>Changed Files</h2>

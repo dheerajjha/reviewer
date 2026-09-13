@@ -19,6 +19,9 @@ const { formatReview, reviewFilename, commentsFilename } = require('./lib/review
 const { buildReviewDocument } = require('./lib/agent');
 const { readSavedComments, ReviewOwnershipError } = require('./lib/store');
 const { repoRoot } = require('./lib/repo');
+const { browse } = require('./lib/browse');
+const { recordRecent, describeRecents } = require('./lib/recents');
+const { listReviews } = require('./lib/export');
 
 const DEFAULT_PORT = 4500;
 const DEFAULT_HOST = '127.0.0.1';
@@ -188,6 +191,61 @@ function createApp(options = {}) {
     res.json({ status: 'ok', sessions: sessions.size });
   });
 
+  /**
+   * Refuse a request a browser has marked as coming from somewhere else.
+   *
+   * `cors()` above is open, deliberately, and that is a settled decision this
+   * does not reopen. It is a rule for the two endpoints below, which differ
+   * from every other one in kind: they enumerate directories and name
+   * projects, rather than answering about a repository whose path the caller
+   * already had. A browser sends `Origin` on exactly the requests where that
+   * distinction matters and omits it on same-origin GETs, so the page keeps
+   * working and a page on another site does not. Anything that is not a
+   * browser can read these directories without asking this server anyway.
+   */
+  function sameOriginOnly(req, res, next) {
+    const origin = req.get('origin');
+
+    if (origin && origin !== `http://${req.headers.host}`) {
+      return res.status(403).json({ error: 'Not available to another origin' });
+    }
+
+    next();
+  }
+
+  /** List the directories inside one, so a repository can be found by looking. */
+  app.get('/api/browse', sameOriginOnly, async (req, res) => {
+    try {
+      res.json(await browse(req.query.path));
+    } catch (error) {
+      if (error.code === 'ENOENT' || error.code === 'ENOTDIR') {
+        return res.status(400).json({ error: 'No such directory' });
+      }
+      if (error.code === 'EACCES' || error.code === 'EPERM') {
+        return res.status(403).json({ error: 'Not allowed to read that directory' });
+      }
+
+      console.error('Browse error:', error);
+      res.status(500).json({ error: error.message });
+    }
+  });
+
+  /** Repositories opened before now, newest first. */
+  app.get('/api/recent', sameOriginOnly, async (req, res) => {
+    try {
+      // Annotated with what is saved against each, because "3 comments" is
+      // what tells you which of two checkouts you were in the middle of.
+      const counts = new Map(
+        (await listReviews(reviewsDir)).map(review => [review.repoPath, review.comments])
+      );
+
+      res.json({ projects: await describeRecents(reviewsDir, counts) });
+    } catch (error) {
+      console.error('Recent projects error:', error);
+      res.status(500).json({ error: error.message });
+    }
+  });
+
   /** Open a repository and list what changed. */
   app.post('/api/load-repo', async (req, res) => {
     try {
@@ -235,6 +293,13 @@ function createApp(options = {}) {
 
       const repoId = sessions.create(root, mode);
       console.log(`Loaded repository: ${root} (mode: ${mode})`);
+
+      try {
+        await recordRecent(reviewsDir, root);
+      } catch (error) {
+        // Being unable to remember this must not stop you opening it.
+        console.error('Could not record recent project:', error.message);
+      }
 
       // `repoPath` in the response is the resolved root, not what was asked
       // for, so the page can show which repository it actually opened.

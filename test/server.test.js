@@ -10,6 +10,7 @@ const path = require('node:path');
 const { createApp } = require('../server');
 const { createTempRepo, createTempDir, writeFiles, commitFiles, cleanup, git } =
   require('./helpers/repo');
+const { RECENTS_FILE } = require('../lib/recents');
 
 /**
  * End-to-end coverage of the HTTP surface, against real repositories.
@@ -517,12 +518,14 @@ test('review files are written only under the configured reviews directory', asy
 
   const written = await fs.readdir(server.reviewsDir);
 
-  // The human-readable review, the machine-readable one beside it, and the
-  // live comment state — and nothing outside this directory.
+  // The human-readable review, the machine-readable one beside it, the live
+  // comment state, and the list of repositories opened -- and nothing else,
+  // here or outside this directory.
   assert.equal(written.filter(name => name.endsWith('.txt')).length, 1);
   assert.equal(written.filter(name => name.startsWith('review_') && name.endsWith('.json')).length, 1);
   assert.equal(written.filter(name => name.startsWith('.code-review-comments-')).length, 1);
-  assert.equal(written.length, 3);
+  assert.equal(written.filter(name => name === RECENTS_FILE).length, 1);
+  assert.equal(written.length, 4);
 });
 
 test('submitting also writes a machine-readable review beside the text one', async t => {
@@ -820,4 +823,158 @@ test('POST /api/load-repo opens the repository a subdirectory belongs to', async
     diff.diffLines.filter(line => line.type !== 'unchanged'),
     [{ oldLine: null, newLine: 2, type: 'add', content: 'two' }]
   );
+});
+
+test('GET /api/browse lists the directories inside one and marks repositories', async t => {
+  const server = await startTestServer();
+  const dir = await createTempDir();
+  const repoPath = await createTempRepo();
+  t.after(async () => {
+    await server.close();
+    await cleanup(dir);
+    await cleanup(repoPath);
+  });
+
+  await fs.mkdir(path.join(dir, 'notes'), { recursive: true });
+  await writeFiles(dir, { 'a-file.txt': 'x\n' });
+  await fs.symlink(repoPath, path.join(dir, 'checkout'));
+
+  const listing = await (
+    await fetch(`${server.url}/api/browse?path=${encodeURIComponent(dir)}`)
+  ).json();
+
+  assert.equal(listing.path, dir);
+  assert.equal(listing.parent, path.dirname(dir));
+  assert.equal(listing.isRepository, false);
+  assert.deepEqual(
+    listing.entries.map(entry => [entry.name, entry.isRepository]),
+    [['checkout', true], ['notes', false]]
+  );
+});
+
+test('GET /api/browse starts at the home directory when given no path', async t => {
+  const server = await startTestServer();
+  t.after(() => server.close());
+
+  const listing = await (await fetch(`${server.url}/api/browse`)).json();
+
+  assert.equal(await fs.realpath(listing.path), await fs.realpath(os.homedir()));
+});
+
+test('GET /api/browse refuses a path that is missing or is not a directory', async t => {
+  const server = await startTestServer();
+  const dir = await createTempDir();
+  t.after(async () => {
+    await server.close();
+    await cleanup(dir);
+  });
+  await writeFiles(dir, { 'file.txt': 'x\n' });
+
+  for (const target of ['/no/such/place/at/all', path.join(dir, 'file.txt')]) {
+    const response = await fetch(`${server.url}/api/browse?path=${encodeURIComponent(target)}`);
+
+    assert.equal(response.status, 400, target);
+    assert.match((await response.json()).error, /No such directory/);
+  }
+});
+
+test('GET /api/recent is empty until a repository has been opened', async t => {
+  const server = await startTestServer();
+  t.after(() => server.close());
+
+  assert.deepEqual(await (await fetch(`${server.url}/api/recent`)).json(), { projects: [] });
+});
+
+test('opening a repository records it, newest first and without duplicates', async t => {
+  const server = await startTestServer();
+  const first = await createTempRepo();
+  const second = await createTempRepo();
+  t.after(async () => {
+    await server.close();
+    await cleanup(first);
+    await cleanup(second);
+  });
+
+  await commitFiles(first, { 'app.js': 'a\n' }, 'initial');
+  await commitFiles(second, { 'app.js': 'b\n' }, 'initial');
+  await writeFiles(first, { 'app.js': 'a\nchanged\n' });
+  await writeFiles(second, { 'app.js': 'b\nchanged\n' });
+
+  await loadRepo(server.url, first);
+  await loadRepo(server.url, second);
+  await loadRepo(server.url, first);
+
+  const { projects } = await (await fetch(`${server.url}/api/recent`)).json();
+
+  assert.deepEqual(projects.map(project => project.path), [first, second]);
+  assert.deepEqual(projects.map(project => project.exists), [true, true]);
+});
+
+test('a repository opened from a subdirectory is remembered by its root', async t => {
+  const server = await startTestServer();
+  const repoPath = await createTempRepo();
+  t.after(async () => {
+    await server.close();
+    await cleanup(repoPath);
+  });
+
+  await commitFiles(repoPath, { 'src/deep/app.js': 'a\n' }, 'initial');
+  await writeFiles(repoPath, { 'src/deep/app.js': 'a\nchanged\n' });
+
+  await loadRepo(server.url, path.join(repoPath, 'src', 'deep'));
+
+  // Otherwise the same repository accumulates one recent entry per directory
+  // you happened to be standing in when you opened it.
+  const { projects } = await (await fetch(`${server.url}/api/recent`)).json();
+  assert.deepEqual(projects.map(project => project.path), [repoPath]);
+});
+
+test('GET /api/recent reports how many comments are saved against each', async t => {
+  const server = await startTestServer();
+  const repoPath = await createTempRepo();
+  t.after(async () => {
+    await server.close();
+    await cleanup(repoPath);
+  });
+
+  await commitFiles(repoPath, { 'app.js': 'a\n' }, 'initial');
+  await writeFiles(repoPath, { 'app.js': 'a\nchanged\n' });
+
+  const { repoId } = await loadRepo(server.url, repoPath);
+  await fetch(`${server.url}/api/save-comments`, {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({
+      repoId,
+      comments: [
+        { file: 'app.js', line: 2, text: 'one' },
+        { file: 'app.js', line: 1, text: 'two' }
+      ]
+    })
+  });
+
+  const { projects } = await (await fetch(`${server.url}/api/recent`)).json();
+
+  assert.equal(projects[0].comments, 2);
+  assert.equal(projects[0].name, path.basename(repoPath));
+});
+
+test('browse and recent are not answered to another origin', async t => {
+  const server = await startTestServer();
+  t.after(() => server.close());
+
+  // These two differ in kind from the rest of the surface: they enumerate
+  // directories and name projects, rather than answering about a repository
+  // whose path the caller already had.
+  for (const endpoint of ['/api/browse', '/api/recent']) {
+    const refused = await fetch(`${server.url}${endpoint}`, {
+      headers: { Origin: 'https://somewhere.example' }
+    });
+    assert.equal(refused.status, 403, endpoint);
+
+    const allowed = await fetch(`${server.url}${endpoint}`, {
+      headers: { Origin: server.url }
+    });
+    assert.equal(allowed.status, 200, endpoint);
+  }
 });

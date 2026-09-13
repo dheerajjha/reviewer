@@ -3,7 +3,7 @@
 [![CI](https://github.com/dheerajjha/reviewer/actions/workflows/ci.yml/badge.svg)](https://github.com/dheerajjha/reviewer/actions/workflows/ci.yml)
 [![License: MIT](https://img.shields.io/badge/license-MIT-blue.svg)](LICENSE)
 [![Node](https://img.shields.io/badge/node-%3E%3D18-brightgreen.svg)](package.json)
-[![Tests](https://img.shields.io/badge/tests-219-brightgreen.svg)](test/)
+[![Tests](https://img.shields.io/badge/tests-246-brightgreen.svg)](test/)
 [![Dependencies](https://img.shields.io/badge/dependencies-3-brightgreen.svg)](package.json)
 
 ![Plain grey code lines on the left resolving into colored diff stripes, with threaded comment markers attached in the right margin](docs/banner.jpg)
@@ -62,6 +62,20 @@ reviewer . --port 8080      # somewhere other than 4500
 ```
 
 Two at once is fine — the second one finds its own port.
+
+### When you are not standing in a repository
+
+The page opens on a picker rather than on an empty box:
+
+- **Recent** — repositories you have opened before, newest first, with how many
+  comments are saved against each. One click reopens one.
+- **Browse** — walk the filesystem from your home directory. Repositories are
+  marked, so you can see where to stop; a folder row walks into it, and the
+  button beside a marked one opens it.
+
+Only directory names are listed, never file names, and the two endpoints behind
+this refuse a request a browser says came from another origin. The path box in
+the header still takes a path typed or pasted, as it always did.
 
 To install it as a command rather than running it through `npx`:
 
@@ -246,7 +260,7 @@ rather than a public issue.
 
 ```bash
 npm install           # 3 dependencies, no build step, ~6MB
-npm test              # 219 tests
+npm test              # 246 tests
 npm run test:watch
 npm run test:coverage
 ```

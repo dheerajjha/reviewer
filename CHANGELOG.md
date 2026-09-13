@@ -8,6 +8,22 @@ adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
 ### Added
 
+- **A picker, for when you are not standing in a repository.** The page used to
+  open on an empty path box, which asked you to already know the path you
+  wanted and to type it exactly. It now offers two ways in: **Recent**, the
+  repositories opened before, newest first and annotated with how many comments
+  are saved against each; and **Browse**, walking the filesystem from your home
+  directory with repositories marked so you can see where to stop.
+
+  Only directory names are listed, never file names. Both endpoints refuse a
+  request a browser reports as coming from another origin — they differ in kind
+  from the rest of the surface, which answers about a repository whose path the
+  caller already had.
+
+  Hidden directories are left out of a listing, except the ones that are
+  repositories, because `~/.dotfiles` is one of the most commonly reviewed
+  repositories there is.
+
 - **The command is installed under both of its names.** The package is
   published as `git-reviewer` — that is what the install line says to type —
   and the only command it created was `reviewer`, so typing the name you had

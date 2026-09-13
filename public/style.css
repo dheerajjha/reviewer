@@ -1004,3 +1004,197 @@ button:disabled {
   font-size: 13px;
   opacity: 0.8;
 }
+
+/* Repository picker
+ *
+ * What the page shows before a repository is open. It used to show nothing at
+ * all but an empty path box in the header, which asked you to already know the
+ * path you were looking for.
+ */
+.picker {
+  flex: 1;
+  overflow-y: auto;
+  padding: 32px 24px;
+  display: flex;
+  justify-content: center;
+}
+
+.picker-card {
+  width: 100%;
+  max-width: 720px;
+}
+
+.picker-card h2 {
+  font-size: 18px;
+  font-weight: 600;
+  color: #24292e;
+  margin-bottom: 20px;
+}
+
+.picker-section {
+  margin-bottom: 28px;
+}
+
+.picker-section h3 {
+  font-size: 12px;
+  font-weight: 600;
+  text-transform: uppercase;
+  letter-spacing: 0.6px;
+  color: #6a737d;
+  margin-bottom: 10px;
+}
+
+.picker-list {
+  background: white;
+  border: 1px solid #e1e4e8;
+  border-radius: 6px;
+  overflow: hidden;
+}
+
+.picker-list-scroll {
+  max-height: 340px;
+  overflow-y: auto;
+}
+
+.picker-empty {
+  padding: 16px;
+  font-size: 13px;
+  color: #6a737d;
+}
+
+.picker-row {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  width: 100%;
+  padding: 10px 14px;
+  border: none;
+  border-bottom: 1px solid #f0f2f4;
+  background: white;
+  font: inherit;
+  font-size: 13px;
+  color: #24292e;
+  text-align: left;
+  cursor: pointer;
+}
+
+.picker-row:last-child {
+  border-bottom: none;
+}
+
+.picker-row:hover {
+  background: #f6f8fa;
+}
+
+.picker-row-icon {
+  flex: none;
+  width: 16px;
+  color: #6a737d;
+}
+
+.picker-row-name {
+  font-weight: 500;
+  white-space: nowrap;
+}
+
+.picker-row-path {
+  flex: 1;
+  min-width: 0;
+  color: #6a737d;
+  font-size: 12px;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  /* Truncate the front of a long path, not the end -- the last few segments
+   * are the ones that identify it. `direction: rtl` is what puts the ellipsis
+   * on the left; `unicode-bidi: plaintext` is what stops it also relocating
+   * the leading slash to the far end, which spells the path wrong. */
+  direction: rtl;
+  unicode-bidi: plaintext;
+  text-align: left;
+}
+
+.picker-row-meta {
+  flex: none;
+  color: #6a737d;
+  font-size: 12px;
+}
+
+.picker-badge {
+  flex: none;
+  padding: 1px 6px;
+  border-radius: 20px;
+  background: #ddf4e4;
+  color: #1a7f37;
+  font-size: 11px;
+  font-weight: 600;
+}
+
+/* A repository that has been moved or deleted is still shown, because seeing
+ * the path you remember is a better answer than a list that quietly shrinks. */
+.picker-row.missing {
+  cursor: not-allowed;
+}
+
+.picker-row.missing .picker-row-name,
+.picker-row.missing .picker-row-path {
+  color: #a0a6ad;
+}
+
+.picker-toolbar {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  margin-bottom: 10px;
+}
+
+.picker-up {
+  flex: none;
+  padding: 5px 12px;
+  border: 1px solid #d1d5da;
+  border-radius: 6px;
+  background: white;
+  font: inherit;
+  font-size: 12px;
+  color: #24292e;
+  cursor: pointer;
+}
+
+.picker-up:hover:not(:disabled) {
+  background: #f6f8fa;
+}
+
+.picker-up:disabled {
+  color: #a0a6ad;
+  cursor: default;
+}
+
+.picker-current {
+  flex: 1;
+  min-width: 0;
+  font-size: 12px;
+  color: #6a737d;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  direction: rtl;
+  unicode-bidi: plaintext;
+  text-align: left;
+}
+
+.picker-open {
+  flex: none;
+  padding: 5px 12px;
+  border: none;
+  border-radius: 6px;
+  background: #0366d6;
+  color: white;
+  font: inherit;
+  font-size: 12px;
+  font-weight: 500;
+  cursor: pointer;
+}
+
+.picker-open:hover {
+  background: #0256b9;
+}
