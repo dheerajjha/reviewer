@@ -6,6 +6,13 @@ adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
 ## [Unreleased]
 
+### Fixed
+
+- **`reviewer export --file` accepts the path however it is spelled.** `./src/auth.js`,
+  `src//auth.js`, `src\auth.js` and absolute paths inside the repository used to
+  fail with "no comments" because the match was literal; they now resolve to the
+  stored repo-relative path.
+
 ## [2.1.0] - 2026-09-13
 
 ### Added
@@ -23,12 +30,6 @@ adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
 ### Fixed
 
-- **`reviewer export --file` accepts the path however it is spelled.** `./src/auth.js`,
-  `src//auth.js`, `srcuth.js` and absolute paths inside the repository used to
-  fail with "no comments" because the match was literal; they now resolve to the
-  stored repo-relative path.
-
-### Fixed
 - **Saved reviews are no longer destroyed by upgrading or uninstalling the
   package.** Reviews were written to a `reviews/` directory inside the
   installed package — a directory npm owns and replaces. Both of the ordinary
