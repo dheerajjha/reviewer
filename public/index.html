@@ -101,6 +101,28 @@
           Full Context
         </button>
       </div>
+      <section id="howTo" class="how-to">
+        <button
+          id="howToToggle"
+          class="how-to-toggle"
+          onclick="toggleHowTo()"
+          aria-expanded="true"
+          aria-controls="howToBody">
+          <span class="how-to-chevron" aria-hidden="true">▾</span>
+          How to comment
+        </button>
+        <div id="howToBody" class="how-to-body">
+          <p><strong>Click a line number</strong> in the left column to comment on that line.
+            Removed lines work too — the most useful note is often about deleted code.</p>
+          <p><strong>Hold <kbd>⌘</kbd>/<kbd>Ctrl</kbd> and drag</strong> to select part of a line,
+            then click the line number. The selection is quoted in the comment.</p>
+          <p><kbd>⌘</kbd>/<kbd>Ctrl</kbd> + <kbd>Enter</kbd> saves ·
+            <kbd>Esc</kbd> cancels ·
+            <kbd>↑</kbd> <kbd>↓</kbd> move between files</p>
+          <p>Everything saves as you type. <strong>Submit Review</strong> when you are done.</p>
+        </div>
+      </section>
+
       <div id="codeViewer" class="code-viewer"></div>
     </main>
 

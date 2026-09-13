@@ -3,7 +3,7 @@
 [![CI](https://github.com/dheerajjha/reviewer/actions/workflows/ci.yml/badge.svg)](https://github.com/dheerajjha/reviewer/actions/workflows/ci.yml)
 [![License: MIT](https://img.shields.io/badge/license-MIT-blue.svg)](LICENSE)
 [![Node](https://img.shields.io/badge/node-%3E%3D18-brightgreen.svg)](package.json)
-[![Tests](https://img.shields.io/badge/tests-264-brightgreen.svg)](test/)
+[![Tests](https://img.shields.io/badge/tests-270-brightgreen.svg)](test/)
 [![Dependencies](https://img.shields.io/badge/dependencies-3-brightgreen.svg)](package.json)
 
 When an agent writes the code, reading it becomes the bottleneck — and the tool
@@ -19,18 +19,34 @@ marked-up review back to the agent to act on.
 npm install -g git-reviewer
 
 cd ~/your-project
-reviewer                                            # read the diff, comment on it
-reviewer export . --format prompt | claude -p "Apply this review."
+reviewer | claude -p "Apply this review."
 ```
+
+That is the whole loop. `reviewer` opens the review in your browser; when you
+press **Submit Review**, the review is written to stdout and the command
+exits — so whatever is on the other end of the pipe receives it and starts
+work. Nothing to copy, no second command, no file to go and find.
+
+Without a pipe, `reviewer` is just a review tool: it tells you where the
+review was saved and keeps serving, because you may have more to read.
+Everything it says to you goes to stderr either way, so only the review is
+ever on stdout.
 
 ![A terminal installing git-reviewer and running it inside a project; the browser opens on the diff with the first changed file already showing; two review comments are written inline, one with a threaded follow-up; then reviewer export prints those same comments back for a coding agent to act on](docs/demo.gif)
 
 *The whole loop, unedited and in real time — [full resolution](docs/demo.mp4).*
 
-`reviewer` starts a local server and opens your browser on the repository you
-are standing in. Nothing is installed into the project, there is nothing to
-sign in to, and nothing leaves your machine. If you would rather not install
-it, `npx git-reviewer` works the same way.
+Nothing is installed into the project, there is nothing to sign in to, and
+nothing leaves your machine. If you would rather not install it,
+`npx git-reviewer` works the same way.
+
+The recording above shows the two-step form, which still works and is the one
+to reach for when the review and the hand-off happen at different times:
+
+```bash
+reviewer                                            # read the diff, comment on it
+reviewer export . --format prompt | claude -p "Apply this review."
+```
 
 Comments persist between sessions and survive the code moving underneath them —
 including the agent's own edits, which shift every line below the first change —
@@ -145,6 +161,9 @@ shown in full, read back out of `HEAD`:
 | `Cmd/Ctrl+Enter` | Save the comment being written |
 | `Escape` | Cancel input |
 | `↑` / `↓` | Move between files |
+
+None of that is guessable, so the review pane says it too, in a **How to
+comment** strip above the diff. Collapse it once and it stays collapsed.
 
 ## What it writes
 
@@ -271,7 +290,7 @@ rather than a public issue.
 
 ```bash
 npm install           # 3 dependencies, no build step, ~6MB
-npm test              # 264 tests
+npm test              # 270 tests
 npm run test:watch
 npm run test:coverage
 ```

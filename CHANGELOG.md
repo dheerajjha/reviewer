@@ -6,6 +6,37 @@ adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
 ## [Unreleased]
 
+### Added
+
+- **`reviewer | claude -p "Apply this review."`** — the whole loop in one
+  command. Submitting the review in the browser writes it to stdout and exits,
+  so whatever is reading the pipe receives it and starts work. There is nothing
+  to copy and no second command.
+
+  On a terminal there is nothing waiting, so submitting is not the end of
+  anything: it says where the review was saved, how many comments it holds and
+  what to run next, and keeps serving.
+
+  Everything the command says to you now goes to **stderr** — the banner, the
+  progress lines, all of it. stdout carries the review and nothing else, which
+  is the only way a pipe can work. This is a change in where output appears,
+  not in what appears: both streams go to your terminal when nothing is piping.
+
+- **The review pane says how to use it.** Nothing on screen suggested that the
+  column of line numbers was clickable, or that holding `Cmd`/`Ctrl` and
+  dragging selects a snippet to quote. Both are obvious the second time and
+  invisible the first. A **How to comment** strip above the diff says so, and
+  collapses for good once you dismiss it.
+
+### Changed
+
+- **The submit dialog says where the review went.** It offered a download and
+  nothing else, which is an odd thing to put in front of someone who started
+  this from a terminal — the review is already a file, and where it is beats a
+  second copy of it in `~/Downloads`. When something is waiting on a pipe it
+  says that instead, because then the answer to "what now" is "nothing, it has
+  already gone".
+
 ## [2.3.1] - 2026-09-14
 
 ### Fixed

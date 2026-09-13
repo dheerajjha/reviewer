@@ -1102,7 +1102,7 @@ async function submitReview() {
       throw new Error(data.error || 'Failed to submit review');
     }
 
-    showReviewModal(data.reviewContent, data.filename);
+    showReviewModal(data);
     showStatus(`Review submitted successfully! ${data.totalComments} comments`, 'success');
 
   } catch (error) {
@@ -1110,9 +1110,38 @@ async function submitReview() {
   }
 }
 
-// Show review modal with download and copy options
-function showReviewModal(reviewContent, filename) {
-  // Create modal overlay
+/**
+ * What happened when you pressed Submit.
+ *
+ * This used to offer a download and nothing else, which is a strange thing to
+ * put in front of somebody who started this from a terminal: the review is
+ * already a file, and they are more likely to want to know where it is than
+ * to want a second copy of it in ~/Downloads.
+ *
+ * So it says where the review was written, and when something is waiting on
+ * the other end of a pipe it says that instead — because in that case the
+ * answer to "what do I do now" is "nothing, it has already gone".
+ *
+ * @param {{reviewContent: string, filename: string, reviewPath?: string,
+ *   handoff?: boolean, totalComments?: number}} result
+ */
+function showReviewModal(result) {
+  const { reviewContent, filename, reviewPath, handoff, totalComments } = result;
+
+  const count = totalComments === undefined
+    ? ''
+    : `${totalComments} comment${totalComments === 1 ? '' : 's'} · `;
+
+  const destination = handoff
+    ? `<div class="review-destination handed-off">
+         <strong>Handed back to your terminal.</strong>
+         <span>${escapeHtml(count)}The command you ran has printed this review and exited. You can close this window.</span>
+       </div>`
+    : `<div class="review-destination">
+         <strong>Saved</strong>
+         <span class="review-path" title="${escapeHtml(reviewPath ?? '')}">${escapeHtml(reviewPath ?? filename)}</span>
+       </div>`;
+
   const modal = document.createElement('div');
   modal.className = 'review-modal';
   modal.innerHTML = `
@@ -1122,11 +1151,12 @@ function showReviewModal(reviewContent, filename) {
         <button class="close-modal" onclick="this.closest('.review-modal').remove()">×</button>
       </div>
       <div class="review-modal-body">
+        ${destination}
         <pre class="review-text">${escapeHtml(reviewContent)}</pre>
       </div>
       <div class="review-modal-footer">
         <button data-filename="${escapeHtml(filename)}" onclick="downloadReview(this.dataset.filename, this.closest('.review-modal').querySelector('.review-text').textContent)">
-          Download ${escapeHtml(filename)}
+          Download
         </button>
         <button onclick="copyReviewToClipboard(this.closest('.review-modal').querySelector('.review-text').textContent)">
           Copy to Clipboard
@@ -1594,6 +1624,8 @@ document.addEventListener('DOMContentLoaded', () => {
     }
   });
 
+  restoreHowTo();
+
   for (const id of ['recentList', 'browseList']) {
     const list = document.getElementById(id);
     list.addEventListener('click', onPickerActivate);
@@ -1849,4 +1881,55 @@ function onPickerActivate(event) {
 
   const into = event.target.closest('[data-into]');
   if (into) loadBrowse(into.dataset.into);
+}
+
+
+/* How to comment
+ * ---------------------------------------------------------------------------
+ * Open until it is dismissed, then remembered as dismissed. A hint that cannot
+ * be turned off becomes furniture, and a hint that has to be found is not one.
+ */
+
+/** Where the dismissal is remembered. Per browser; it is a convenience, not state. */
+const HOW_TO_KEY = 'reviewer.howTo.collapsed';
+
+/**
+ * @returns {boolean} whether it has been collapsed before
+ */
+function howToWasCollapsed() {
+  try {
+    return window.localStorage.getItem(HOW_TO_KEY) === 'true';
+  } catch {
+    // A private window, or site data blocked. Showing the hint again is a far
+    // better failure than not rendering the panel at all.
+    return false;
+  }
+}
+
+/**
+ * @param {boolean} collapsed
+ */
+function rememberHowTo(collapsed) {
+  try {
+    window.localStorage.setItem(HOW_TO_KEY, String(collapsed));
+  } catch {
+    // Nothing to do. It reopens next time, which is the harmless direction.
+  }
+}
+
+function toggleHowTo() {
+  const panel = document.getElementById('howTo');
+  const collapsed = panel.classList.toggle('collapsed');
+
+  document.getElementById('howToToggle').setAttribute('aria-expanded', String(!collapsed));
+  rememberHowTo(collapsed);
+}
+
+function restoreHowTo() {
+  const panel = document.getElementById('howTo');
+  if (!panel) return;
+
+  const collapsed = howToWasCollapsed();
+  panel.classList.toggle('collapsed', collapsed);
+  document.getElementById('howToToggle').setAttribute('aria-expanded', String(!collapsed));
 }

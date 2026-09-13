@@ -15,7 +15,8 @@ const os = require('node:os');
 // child processes resolve to the same throwaway.
 process.env.REVIEWER_DATA_DIR = fsSync.mkdtempSync(path.join(os.tmpdir(), 'reviewer-bin-'));
 
-const { createTempRepo, createTempDir, commitFiles, cleanup } = require('./helpers/repo');
+const { createTempRepo, createTempDir, writeFiles, commitFiles, cleanup } =
+  require('./helpers/repo');
 const { commentsFilename } = require('../lib/review');
 const { REVIEWS_DIR } = require('../server');
 
@@ -46,13 +47,18 @@ function run(args, { cwd } = {}) {
 /**
  * Start the command on a free port and wait for its banner.
  *
+ * The banner is read from **stderr**, which is where everything this command
+ * says to a person goes. stdout carries the finished review, so that a review
+ * can be piped straight into a coding agent -- see the handoff tests below.
+ *
  * Resolves on the last line of the banner rather than the first match for a
  * URL, so the whole of it is readable by the caller without a race.
  *
  * @param {string[]} args
  * @param {object} [options]
  * @param {string} [options.cwd] directory to run from
- * @returns {Promise<{url: string, output: string, child: import('node:child_process').ChildProcess}>}
+ * @returns {Promise<{url: string, output: string, stdout: () => string,
+ *   child: import('node:child_process').ChildProcess}>}
  */
 function serve(args, { cwd } = {}) {
   const child = require('node:child_process').spawn(
@@ -61,16 +67,25 @@ function serve(args, { cwd } = {}) {
     { cwd, stdio: ['ignore', 'pipe', 'pipe'] }
   );
 
+  let piped = '';
+  child.stdout.on('data', chunk => { piped += chunk; });
+
   return new Promise((resolve, reject) => {
     let output = '';
+    const ready = /Press Ctrl\+C|written here/;
     const timer = setTimeout(() => reject(new Error(`no banner in output: ${output}`)), 15000);
 
-    child.stdout.on('data', chunk => {
+    child.stderr.on('data', chunk => {
       output += chunk;
-      if (!output.includes('Press Ctrl+C')) return;
+      if (!ready.test(output)) return;
 
       clearTimeout(timer);
-      resolve({ url: output.match(/http:\/\/127\.0\.0\.1:\d+\S*/)[0], output, child });
+      resolve({
+        url: output.match(/http:\/\/127\.0\.0\.1:\d+\S*/)[0],
+        output,
+        stdout: () => piped,
+        child
+      });
     });
     child.on('error', reject);
   });
@@ -201,7 +216,8 @@ test('it serves the repository it was pointed at, then stops on SIGINT', async t
     let output = '';
     const timer = setTimeout(() => reject(new Error(`no URL in output: ${output}`)), 15000);
 
-    child.stdout.on('data', chunk => {
+    // stderr: stdout is reserved for the review itself.
+    child.stderr.on('data', chunk => {
       output += chunk;
       const match = output.match(/http:\/\/127\.0\.0\.1:\d+\S*/);
       if (match) {
@@ -291,4 +307,117 @@ test('export run from a subdirectory finds the repository review', async t => {
 
   assert.equal(code, 0, stderr);
   assert.equal(JSON.parse(stdout).repository.path, repoPath);
+});
+
+/**
+ * Handing a finished review back to the terminal.
+ *
+ * The point of all of this is one line:
+ *
+ *     reviewer | claude -p "Apply this review."
+ *
+ * which only works if stdout carries the review and nothing else. Everything
+ * the command says to a person goes to stderr, and a spawned child's stdout is
+ * always a pipe, so these tests are in the handing-off case by construction.
+ */
+
+/**
+ * Submit a review through the running server, the way the browser does.
+ *
+ * @param {string} origin
+ * @param {string} repoPath
+ * @param {object[]} comments
+ */
+async function submitThrough(origin, repoPath, comments) {
+  const { repoId } = await (await fetch(`${origin}/api/load-repo`, {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ repoPath })
+  })).json();
+
+  await fetch(`${origin}/api/save-comments`, {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ repoId, comments })
+  });
+
+  return (await fetch(`${origin}/api/submit-review`, {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ repoId })
+  })).json();
+}
+
+test('submitting a review writes it to stdout and the command exits', async t => {
+  const repoPath = await createTempRepo();
+  t.after(() => cleanup(repoPath));
+  await commitFiles(repoPath, { 'app.js': 'one\n' }, 'initial');
+  await writeFiles(repoPath, { 'app.js': 'one\ntwo\n' });
+
+  const { url, child, stdout } = await serve([repoPath]);
+  t.after(() => child.kill('SIGKILL'));
+
+  const exited = new Promise(resolve => child.on('exit', resolve));
+  await submitThrough(new URL(url).origin, repoPath, [
+    { file: 'app.js', line: 2, lineContent: 'two', text: 'Needs a test.' }
+  ]);
+
+  assert.equal(await exited, 0, 'the command finishes once the review is out');
+
+  const piped = stdout();
+  assert.match(piped, /^# Code review to address/);
+  assert.match(piped, /Needs a test\./);
+  assert.match(piped, /app\.js/);
+});
+
+test('nothing but the review reaches stdout', async t => {
+  const repoPath = await createTempRepo();
+  t.after(() => cleanup(repoPath));
+  await commitFiles(repoPath, { 'app.js': 'one\n' }, 'initial');
+  await writeFiles(repoPath, { 'app.js': 'one\ntwo\n' });
+
+  const { url, child, stdout, output } = await serve([repoPath]);
+  t.after(() => child.kill('SIGKILL'));
+
+  const exited = new Promise(resolve => child.on('exit', resolve));
+  await submitThrough(new URL(url).origin, repoPath, [
+    { file: 'app.js', line: 2, lineContent: 'two', text: 'Needs a test.' }
+  ]);
+  await exited;
+
+  // Every one of these used to be written to stdout, and each would have
+  // landed in the middle of whatever the review was piped into.
+  for (const chatter of ['Code Reviewer', 'reviewing ', 'Loaded repository', 'Review generated']) {
+    assert.doesNotMatch(stdout(), new RegExp(chatter), `stdout carries "${chatter}"`);
+  }
+
+  // They are not lost, just addressed to the person rather than to the pipe.
+  assert.match(output + '', /Code Reviewer/);
+});
+
+test('the banner says the review will be written out, when something is reading', async t => {
+  const repoPath = await createTempRepo();
+  t.after(() => cleanup(repoPath));
+  await commitFiles(repoPath, { 'app.js': 'a\n' }, 'initial');
+
+  const { output, child } = await serve([repoPath]);
+  t.after(() => child.kill('SIGKILL'));
+
+  // "Press Ctrl+C to stop" is the wrong thing to say to someone who is waiting
+  // for a pipe to deliver: stopping is exactly what they must not do.
+  assert.match(output, /written here/);
+  assert.doesNotMatch(output, /Press Ctrl\+C/);
+});
+
+test('stopping without submitting leaves stdout empty rather than half a review', async t => {
+  const repoPath = await createTempRepo();
+  t.after(() => cleanup(repoPath));
+  await commitFiles(repoPath, { 'app.js': 'a\n' }, 'initial');
+
+  const { child, stdout } = await serve([repoPath]);
+  const exited = new Promise(resolve => child.on('exit', resolve));
+  child.kill('SIGINT');
+  await exited;
+
+  assert.equal(stdout(), '');
 });

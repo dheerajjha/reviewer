@@ -1002,3 +1002,95 @@ test('browse and recent are not answered to another origin', async t => {
     assert.equal(allowed.status, 200, endpoint);
   }
 });
+
+test('submitting tells the caller, so the process that started the server can act', async t => {
+  const handed = [];
+  const reviewsDir = await fs.mkdtemp(path.join(await fs.realpath(os.tmpdir()), 'reviewer-handoff-'));
+  const app = createApp({
+    reviewsDir,
+    handoff: true,
+    onReviewSubmitted: review => handed.push(review)
+  });
+  const listening = await new Promise(resolve => {
+    const server = app.listen(0, '127.0.0.1', () => resolve(server));
+  });
+  const url = `http://127.0.0.1:${listening.address().port}`;
+
+  const repoPath = await createTempRepo();
+  t.after(async () => {
+    await new Promise(resolve => listening.close(resolve));
+    await cleanup(reviewsDir);
+    await cleanup(repoPath);
+  });
+
+  await commitFiles(repoPath, { 'app.js': 'one\n' }, 'initial');
+  await writeFiles(repoPath, { 'app.js': 'one\ntwo\n' });
+
+  const { repoId } = await loadRepo(url, repoPath);
+  await fetch(`${url}/api/save-comments`, {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ repoId, comments: [{ file: 'app.js', line: 2, text: 'Needs a test.' }] })
+  });
+
+  const submitted = await (await fetch(`${url}/api/submit-review`, {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ repoId })
+  })).json();
+
+  // The page is told where the review went and whether anything is waiting for
+  // it, because "download it" is the wrong thing to offer someone whose
+  // terminal already has it.
+  assert.equal(submitted.handoff, true);
+  assert.equal(submitted.reviewPath, path.join(reviewsDir, submitted.filename));
+
+  assert.equal(handed.length, 1);
+  assert.equal(handed[0].document.summary.comments, 1);
+  assert.equal(handed[0].reviewPath, submitted.reviewPath);
+  assert.deepEqual(handed[0].comments.map(comment => comment.text), ['Needs a test.']);
+});
+
+test('a handoff that throws does not fail the submit', async t => {
+  const reviewsDir = await fs.mkdtemp(path.join(await fs.realpath(os.tmpdir()), 'reviewer-handoff-'));
+  const app = createApp({
+    reviewsDir,
+    onReviewSubmitted: () => {
+      throw new Error('the consumer fell over');
+    }
+  });
+  const listening = await new Promise(resolve => {
+    const server = app.listen(0, '127.0.0.1', () => resolve(server));
+  });
+  const url = `http://127.0.0.1:${listening.address().port}`;
+
+  const repoPath = await createTempRepo();
+  t.after(async () => {
+    await new Promise(resolve => listening.close(resolve));
+    await cleanup(reviewsDir);
+    await cleanup(repoPath);
+  });
+
+  await commitFiles(repoPath, { 'app.js': 'one\n' }, 'initial');
+  await writeFiles(repoPath, { 'app.js': 'one\ntwo\n' });
+
+  const { repoId } = await loadRepo(url, repoPath);
+  await fetch(`${url}/api/save-comments`, {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ repoId, comments: [{ file: 'app.js', line: 2, text: 'x' }] })
+  });
+
+  // The review is on disk before the caller is told about it. Whatever the
+  // caller then does with it, the person in the browser has submitted
+  // successfully and must be told so.
+  const response = await fetch(`${url}/api/submit-review`, {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ repoId })
+  });
+
+  assert.equal(response.status, 200);
+  const written = await fs.readdir(reviewsDir);
+  assert.equal(written.filter(name => name.endsWith('.txt')).length, 1);
+});

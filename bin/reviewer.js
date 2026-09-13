@@ -5,6 +5,7 @@ const fs = require('fs').promises;
 const path = require('path');
 
 const { parseArgs, buildUrl, UsageError, USAGE } = require('../lib/cli');
+const { homeRelative } = require('../lib/paths');
 const { openInBrowser } = require('../lib/browser');
 const { formatPrompt } = require('../lib/agent');
 const { ReviewOwnershipError } = require('../lib/store');
@@ -23,22 +24,38 @@ const { version } = require('../package.json');
  */
 
 /**
+ * Everything this command says to the person running it.
+ *
+ * stderr, not stdout, and that is the whole design. stdout carries the
+ * finished review so it can be piped into a coding agent; a banner or a
+ * progress line written there lands in the middle of it. Both streams go to
+ * the same terminal when nothing is piping, so this is invisible until it
+ * matters.
+ *
+ * @param {string} [line]
+ */
+function note(line = '') {
+  process.stderr.write(`${line}\n`);
+}
+
+/**
  * Listen on `port`, falling back to any free port if it is taken.
  *
  * Someone reviewing two repositories at once should get a second window, not
  * an EADDRINUSE stack trace.
  *
  * @param {number} port
+ * @param {object} [options] passed through to the server
  * @returns {Promise<import('http').Server>}
  */
-async function listen(port) {
+async function listen(port, options = {}) {
   try {
-    return await startServer({ port, host: DEFAULT_HOST, silent: true });
+    return await startServer({ ...options, port, host: DEFAULT_HOST, silent: true });
   } catch (error) {
     if (error.code !== 'EADDRINUSE') throw error;
 
-    console.log(`Port ${port} is in use, picking another.`);
-    return startServer({ port: 0, host: DEFAULT_HOST, silent: true });
+    note(`Port ${port} is in use, picking another.`);
+    return startServer({ ...options, port: 0, host: DEFAULT_HOST, silent: true });
   }
 }
 
@@ -112,11 +129,11 @@ async function main() {
   // can start against a half-populated directory. See #33.
   const adopted = adoptLegacyReviews();
   if (adopted > 0) {
-    console.log(
+    note(
       `  Copied ${adopted} saved review${adopted === 1 ? '' : 's'} out of the ` +
         `install directory to\n  ${reviewsDir()}\n  so that upgrading or ` +
         'reinstalling this package can no longer delete them.\n' +
-        '  The originals are left where they were.\n'
+        '  The originals are left where they were.'
     );
   }
 
@@ -144,22 +161,67 @@ async function main() {
 
   const repoPath = await repositoryToOpen(options.repoPath);
 
-  const server = await listen(options.port ?? (Number(process.env.PORT) || DEFAULT_PORT));
-  const url = buildUrl(`http://${DEFAULT_HOST}:${server.address().port}`, repoPath);
+  // Is anything reading our stdout? If so, the review goes there when it is
+  // submitted and the command finishes -- which is what turns the whole loop
+  // into one line:
+  //
+  //     reviewer | claude -p "Apply this review."
+  //
+  // On a terminal there is nothing waiting, so submitting is not the end of
+  // anything: you may have more to review. It says where the review went and
+  // what to run next, and keeps serving.
+  const handingOff = !process.stdout.isTTY;
 
-  console.log(`\n  Code Reviewer  ${url}`);
-  if (repoPath) console.log(`  reviewing      ${repoPath}`);
-  console.log('\n  Press Ctrl+C to stop.\n');
-
-  if (options.open && !(await openInBrowser(url))) {
-    console.log('  Could not open a browser — open the URL above yourself.\n');
-  }
-
+  let handedOff = false;
   const stop = () => {
     server.close(() => process.exit(0));
     // Don't wait forever on a browser holding the connection open.
     setTimeout(() => process.exit(0), 2000).unref();
   };
+
+  /**
+   * A review has just been written. Say so, or hand it over.
+   *
+   * @param {{document: object, reviewPath: string}} submitted
+   */
+  const onReviewSubmitted = ({ document, reviewPath }) => {
+    const { comments, files } = document.summary;
+    const count = `${comments} comment${comments === 1 ? '' : 's'} on ` +
+      `${files} file${files === 1 ? '' : 's'}`;
+
+    if (!handingOff) {
+      note(`\n  Review saved    ${homeRelative(reviewPath)}`);
+      note(`  ${count}\n`);
+      note('  Hand it to an agent with:');
+      note(`    reviewer export ${repoPath ? homeRelative(repoPath) : '.'} --format prompt | claude -p "Apply this review."\n`);
+      return;
+    }
+
+    // Once is enough: the first submitted review is what the pipe is waiting
+    // for, and a second would arrive after the process has gone.
+    if (handedOff) return;
+    handedOff = true;
+
+    note(`\n  ${count} — handing the review back to your terminal.\n`);
+    process.stdout.write(formatPrompt(document));
+    stop();
+  };
+
+  const server = await listen(
+    options.port ?? (Number(process.env.PORT) || DEFAULT_PORT),
+    { onReviewSubmitted, handoff: handingOff }
+  );
+  const url = buildUrl(`http://${DEFAULT_HOST}:${server.address().port}`, repoPath);
+
+  note(`\n  Code Reviewer  ${url}`);
+  if (repoPath) note(`  reviewing      ${repoPath}`);
+  note(handingOff
+    ? '\n  Submit the review in the browser and it will be written here.\n'
+    : '\n  Press Ctrl+C to stop.\n');
+
+  if (options.open && !(await openInBrowser(url))) {
+    note('  Could not open a browser — open the URL above yourself.\n');
+  }
 
   process.on('SIGINT', stop);
   process.on('SIGTERM', stop);

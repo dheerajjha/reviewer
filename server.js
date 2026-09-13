@@ -48,13 +48,22 @@ class FileNotFoundError extends Error {
  * @param {string} [options.reviewsDir] where comment and review files are written
  * @param {SessionStore} [options.sessions]
  * @param {(path: string) => import('simple-git').SimpleGit} [options.git] git factory, injectable for tests
+ * @param {(review: {document: object, reviewPath: string, documentPath: string,
+ *   comments: object[]}) => void} [options.onReviewSubmitted] called after a
+ *   review is written, so the process that started the server can act on it.
+ *   This is what lets `reviewer` hand the finished review back to the terminal.
+ * @param {boolean} [options.handoff] whether the caller is going to do
+ *   something with a submitted review. Reported to the page so it can say
+ *   where the review went instead of only offering a download.
  * @returns {import('express').Express}
  */
 function createApp(options = {}) {
   const {
     reviewsDir = resolveReviewsDir(),
     sessions = new SessionStore(),
-    git: gitFactory = simpleGit
+    git: gitFactory = simpleGit,
+    onReviewSubmitted = null,
+    handoff = false
   } = options;
 
   const app = express();
@@ -292,7 +301,10 @@ function createApp(options = {}) {
       }
 
       const repoId = sessions.create(root, mode);
-      console.log(`Loaded repository: ${root} (mode: ${mode})`);
+      // stderr, not stdout. `reviewer | claude -p ...` puts the finished
+      // review on stdout, and anything else written there lands in the middle
+      // of it. Progress is for the person watching; stdout is for the pipe.
+      console.error(`Loaded repository: ${root} (mode: ${mode})`);
 
       try {
         await recordRecent(reviewsDir, root);
@@ -465,16 +477,39 @@ function createApp(options = {}) {
         `${JSON.stringify(document, null, 2)}\n`
       );
 
-      console.log(`Review generated: ${filename} (${comments.length} comments)`);
+      console.error(`Review generated: ${filename} (${comments.length} comments)`);
+
+      const reviewPath = path.join(reviewsDir, filename);
 
       res.json({
         message: 'Review submitted successfully',
         reviewContent,
         filename,
         documentFilename,
+        reviewPath,
+        // The page has no other way to know whether anything is waiting for
+        // this on the other side, and "download it" is the wrong thing to say
+        // to someone whose terminal is about to be handed the same review.
+        handoff,
         review: document,
         totalComments: comments.length
       });
+
+      // After the response, so a slow or throwing consumer cannot make the
+      // browser think the submit failed. The review is already on disk by now
+      // and the caller is told where.
+      if (onReviewSubmitted) {
+        try {
+          onReviewSubmitted({
+            document,
+            reviewPath,
+            documentPath: path.join(reviewsDir, documentFilename),
+            comments
+          });
+        } catch (error) {
+          console.error('Review handoff failed:', error.message);
+        }
+      }
     } catch (error) {
       if (error instanceof ReviewOwnershipError) {
         return res.status(409).json({ error: error.message });
@@ -510,12 +545,14 @@ function startServer(options = {}) {
     silent = false,
     ...appOptions
   } = options;
+  // Everything else in `options` -- reviewsDir, sessions, git, handoff and
+  // onReviewSubmitted -- goes through to the app.
   const app = createApp(appOptions);
 
   return new Promise((resolve, reject) => {
     const server = app.listen(port, host, () => {
       if (!silent) {
-        console.log(`Code Reviewer server running on http://${host}:${server.address().port}`);
+        console.error(`Code Reviewer server running on http://${host}:${server.address().port}`);
       }
       resolve(server);
     });

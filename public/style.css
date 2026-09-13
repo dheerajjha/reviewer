@@ -1319,3 +1319,132 @@ button:disabled {
   max-height: calc(100vh - 112px);
   overflow-y: auto;
 }
+
+/* Where the review went
+ *
+ * The modal used to offer a download and nothing else, which is an odd thing
+ * to put in front of somebody who started this from a terminal. The review is
+ * already a file; knowing where is more useful than a second copy of it.
+ */
+.review-destination {
+  display: flex;
+  align-items: baseline;
+  gap: 10px;
+  margin-bottom: 14px;
+  padding: 10px 12px;
+  border: 1px solid #e1e4e8;
+  border-radius: 6px;
+  background: #f6f8fa;
+  font-size: 13px;
+  color: #24292e;
+}
+
+.review-destination.handed-off {
+  border-color: #b7e0c2;
+  background: #eefcf1;
+}
+
+.review-destination strong {
+  flex: none;
+  font-weight: 600;
+}
+
+.review-destination span {
+  min-width: 0;
+  color: #57606a;
+}
+
+.review-destination .review-path {
+  /* Wrapped rather than truncated. There is room in a modal, and every way of
+   * shortening a path hides the half somebody wanted: cut the front and the
+   * directory goes, cut the back and the filename goes. */
+  word-break: break-all;
+  font-family: 'SF Mono', Monaco, 'Cascadia Code', monospace;
+  font-size: 12px;
+}
+
+.review-destination {
+  align-items: flex-start;
+}
+
+/* How to comment
+ *
+ * Nothing on screen said that the column of line numbers was clickable, or
+ * that holding Cmd and dragging selects a snippet to quote. Both are obvious
+ * the second time and invisible the first, which is exactly what a hint is
+ * for -- and exactly why it has to be dismissible rather than permanent.
+ */
+.how-to {
+  flex: none;
+  border-bottom: 1px solid #e1e4e8;
+  background: #f6f8fa;
+}
+
+.how-to-toggle {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  width: 100%;
+  padding: 8px 20px;
+  border: none;
+  background: transparent;
+  font: inherit;
+  font-size: 12px;
+  font-weight: 600;
+  color: #57606a;
+  text-align: left;
+  cursor: pointer;
+}
+
+.how-to-toggle:hover {
+  color: #24292e;
+}
+
+.how-to-chevron {
+  display: inline-block;
+  font-size: 10px;
+  transition: transform 0.15s ease;
+}
+
+.how-to.collapsed .how-to-chevron {
+  transform: rotate(-90deg);
+}
+
+.how-to.collapsed .how-to-body {
+  display: none;
+}
+
+.how-to-body {
+  padding: 0 20px 12px 20px;
+}
+
+.how-to-body p {
+  margin: 0 0 6px 0;
+  font-size: 12.5px;
+  line-height: 1.5;
+  color: #57606a;
+}
+
+.how-to-body p:last-child {
+  margin-bottom: 0;
+}
+
+.how-to-body strong {
+  color: #24292e;
+  font-weight: 600;
+}
+
+.how-to-body kbd {
+  display: inline-block;
+  min-width: 18px;
+  padding: 1px 5px;
+  border: 1px solid #d1d5da;
+  border-bottom-width: 2px;
+  border-radius: 4px;
+  background: white;
+  font-family: inherit;
+  font-size: 11px;
+  line-height: 1.4;
+  color: #24292e;
+  text-align: center;
+}
