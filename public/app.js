@@ -296,7 +296,7 @@ async function loadFile(filePath, index) {
       updateCommentsSidebar();
     }
 
-    displayCode(data.filePath, data.diffLines);
+    displayCode(data.filePath, data.diffLines, data.binary);
     updateFullContextButton();
     return Promise.resolve();
 
@@ -307,13 +307,26 @@ async function loadFile(filePath, index) {
 }
 
 // Display code with diff highlighting
-function displayCode(filePath, diffLines) {
+function displayCode(filePath, diffLines, binary) {
   const codeSection = document.getElementById('codeSection');
   const currentFileEl = document.getElementById('currentFile');
   const codeViewer = document.getElementById('codeViewer');
 
   currentFileEl.textContent = filePath;
   currentDiffLines = diffLines; // Store for reference when adding comments
+
+  // A binary file has no lines to show and none to comment on. Saying so is
+  // the whole feature: it used to be decoded as UTF-8 and rendered as
+  // mojibake, and a comment left on one of those lines exported an anchor
+  // that could never match the file again.
+  if (binary) {
+    codeSection.style.display = 'block';
+    codeViewer.innerHTML =
+      '<div class="binary-notice">Binary file &mdash; not shown.' +
+      '<span>git reports this file as binary, so there are no lines to ' +
+      'review. Comments need a line to anchor to.</span></div>';
+    return;
+  }
 
   const fileComments = comments.filter(c => c.file === filePath);
 

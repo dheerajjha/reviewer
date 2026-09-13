@@ -3,6 +3,7 @@
 const test = require('node:test');
 const assert = require('node:assert/strict');
 const fs = require('node:fs/promises');
+const fsSync = require('node:fs');
 const os = require('node:os');
 const path = require('node:path');
 
@@ -731,4 +732,55 @@ test('session count is reflected in the health probe', async t => {
   const health = await (await fetch(`${server.url}/api/health`)).json();
 
   assert.equal(health.sessions, 1);
+});
+
+// --- binary files are not decoded as text (#23) --------------------------
+
+test('a binary file is reported as binary, not served as mojibake', async t => {
+  // `lib/changes.js` already classified these as `B` and the sidebar showed
+  // the letter, but the file endpoint decoded the blob as UTF-8 anyway: a
+  // 2 KB PNG came back as ten `add` lines, roughly 45% of the characters
+  // being U+FFFD. The second-order damage is worse than the mojibake — a
+  // comment left on one of those lines exports an `anchor` that can never
+  // match the file, and docs/agent-format.md tells consumers to locate
+  // comments by that anchor.
+  const server = await startTestServer();
+  const repoPath = await createTempRepo();
+  t.after(() => Promise.all([server.close(), cleanup(repoPath)]));
+
+  const png = Buffer.alloc(2048);
+  for (let i = 0; i < png.length; i++) png[i] = i % 256;
+  await fsSync.promises.writeFile(path.join(repoPath, 'logo.png'), png);
+  await commitFiles(repoPath, { 'keep.txt': 'x\n' }, 'initial');
+
+  png[0] = 0xff;
+  await fsSync.promises.writeFile(path.join(repoPath, 'logo.png'), png);
+  await git(repoPath, ['add', '-A']);
+  await git(repoPath, ['commit', '-q', '-m', 'regenerate logo']);
+
+  const { repoId } = await loadRepo(server.url, repoPath);
+  const body = await (await fetch(`${server.url}/api/file/${repoId}/logo.png`)).json();
+
+  assert.equal(body.binary, true, 'the endpoint should report the file as binary');
+  assert.deepEqual(body.diffLines, [], 'a binary file has no lines to review');
+
+  const served = body.diffLines.map(line => line.content).join('');
+  assert.equal(served.includes('�'), false, 'no replacement characters should be served');
+});
+
+test('a text file is still served as lines', async t => {
+  // The binary check must not swallow ordinary files; that would be a much
+  // worse bug than the one it fixes.
+  const server = await startTestServer();
+  const repoPath = await createTempRepo();
+  t.after(() => Promise.all([server.close(), cleanup(repoPath)]));
+
+  await commitFiles(repoPath, { 'app.js': 'const a = 1;\n' }, 'initial');
+  await writeFiles(repoPath, { 'app.js': 'const a = 2;\n' });
+
+  const { repoId } = await loadRepo(server.url, repoPath);
+  const body = await (await fetch(`${server.url}/api/file/${repoId}/app.js`)).json();
+
+  assert.equal(body.binary, false);
+  assert.ok(body.diffLines.length > 0, 'a changed text file still has diff lines');
 });

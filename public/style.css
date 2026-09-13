@@ -988,3 +988,19 @@ button:disabled {
   color: #24292e;
   border: 1px solid #e1e4e8;
 }
+
+/* A binary file has no lines to render; say so rather than showing a
+   lossy UTF-8 decode of its bytes. See #23. */
+.binary-notice {
+  padding: 28px 24px;
+  color: #57606a;
+  font-size: 14px;
+  line-height: 1.6;
+}
+
+.binary-notice span {
+  display: block;
+  margin-top: 6px;
+  font-size: 13px;
+  opacity: 0.8;
+}

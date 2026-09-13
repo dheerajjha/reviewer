@@ -149,6 +149,29 @@ function createApp(options = {}) {
    * @param {string} filePath
    * @returns {Promise<string>}
    */
+  /**
+   * Whether git considers this file binary.
+   *
+   * Asking git rather than sniffing the bytes ourselves, because git's
+   * answer is the one that produced the diff we are about to render, and a
+   * second opinion that disagreed would be worse than no opinion. It says
+   * so in the diff itself: `Binary files a/x and b/x differ` for the
+   * default format, `GIT binary patch` when binary patches are enabled.
+   *
+   * This matters beyond the mojibake. `lib/changes.js` already classifies
+   * these as `B` and the sidebar renders that letter, but the file endpoint
+   * never consulted it -- so a 2 KB PNG came back as ten `add` lines that
+   * were ~45% U+FFFD, and a comment left on one of them exported an
+   * `anchor` that can never match the file. docs/agent-format.md tells a
+   * consumer to locate comments by that anchor.
+   *
+   * @param {string} diffText
+   * @returns {boolean}
+   */
+  function isBinaryDiff(diffText) {
+    return /^Binary files .* differ$/m.test(diffText) || /^GIT binary patch$/m.test(diffText);
+  }
+
   async function diffForFile(git, session, filePath) {
     if (session.mode === 'lastCommit') {
       return git.diff(['HEAD~1', 'HEAD', '--', filePath]);
@@ -221,11 +244,26 @@ function createApp(options = {}) {
       const session = requireSession(res, repoId);
       if (!session) return;
 
+      // Confine the path first, explicitly. It used to be confined as a
+      // side effect of `readFileForMode` calling `resolveRepoFile`, so
+      // moving the read below the binary check silently turned a 400 into a
+      // 500 and let the traversal reach git. A containment check that only
+      // works because of statement order is not a containment check.
+      resolveRepoFile(session.repoPath, filePath);
+
       const git = gitFactory(session.repoPath);
-      const content = await readFileForMode(session, filePath);
       const diffText = await diffForFile(git, session, filePath);
 
-      res.json({ filePath, diffLines: parseDiff(diffText, content) });
+      // Answered before the file is read: decoding a PNG as UTF-8 to then
+      // throw the result away is how the mojibake got served in the first
+      // place.
+      if (isBinaryDiff(diffText)) {
+        return res.json({ filePath, binary: true, diffLines: [] });
+      }
+
+      const content = await readFileForMode(session, filePath);
+
+      res.json({ filePath, binary: false, diffLines: parseDiff(diffText, content) });
     } catch (error) {
       if (error instanceof PathEscapeError) {
         return res.status(400).json({ error: error.message });
