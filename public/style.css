@@ -44,9 +44,9 @@ body {
 .header-actions {
   display: flex;
   align-items: center;
-  gap: 12px;
+  gap: 8px;
   flex: 1;
-  max-width: 800px;
+  min-width: 0;
 }
 
 #repoPath {
@@ -1197,4 +1197,125 @@ button:disabled {
 
 .picker-open:hover {
   background: #0256b9;
+}
+
+/* The repository control
+ *
+ * The header used to be a text box saying "Enter local repository path...",
+ * which asked the one thing a person opening this tool is least able to
+ * supply: the exact path, typed correctly, from memory. It is a button now.
+ * Typing a path is still there, behind the icon beside it, because pasting one
+ * is a real thing to want and a navigator is slow when you already know.
+ */
+.repo-button {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  max-width: 380px;
+  padding: 7px 12px;
+  border: 1px solid #d1d5da;
+  border-radius: 6px;
+  background: white;
+  font: inherit;
+  font-size: 13px;
+  font-weight: 500;
+  color: #24292e;
+  cursor: pointer;
+}
+
+.repo-button:hover {
+  background: #f6f8fa;
+  border-color: #c6cbd1;
+}
+
+.repo-button svg {
+  flex: none;
+  color: #6a737d;
+}
+
+.repo-button span {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.icon-button {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  flex: none;
+  width: 30px;
+  height: 30px;
+  padding: 0;
+  border: 1px solid transparent;
+  border-radius: 6px;
+  background: transparent;
+  color: #6a737d;
+  cursor: pointer;
+}
+
+.icon-button:hover {
+  background: #f0f2f4;
+  color: #24292e;
+}
+
+.icon-button[aria-expanded='true'] {
+  background: #eaeef2;
+  border-color: #d1d5da;
+  color: #24292e;
+}
+
+.path-entry {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  flex: 1;
+  min-width: 0;
+}
+
+.path-entry input {
+  flex: 1;
+  min-width: 0;
+}
+
+/* Pushed to the far end, so the review controls are not mixed in with the
+ * controls for choosing what you are reviewing. */
+.submit-btn {
+  margin-left: auto;
+}
+
+.picker-heading {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+  margin-bottom: 20px;
+}
+
+.picker-heading h2 {
+  margin-bottom: 0;
+}
+
+/* Over the review rather than instead of it: switching repositories with a
+ * review open should not throw the review off the screen to ask. */
+.picker.as-overlay {
+  position: fixed;
+  top: 0;
+  left: 0;
+  width: 100%;
+  height: 100%;
+  z-index: 1000;
+  background: rgba(0, 0, 0, 0.45);
+  padding: 56px 24px;
+  align-items: flex-start;
+}
+
+.picker.as-overlay .picker-card {
+  max-width: 640px;
+  padding: 24px;
+  background: white;
+  border-radius: 8px;
+  box-shadow: 0 10px 40px rgba(0, 0, 0, 0.3);
+  max-height: calc(100vh - 112px);
+  overflow-y: auto;
 }

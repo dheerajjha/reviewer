@@ -162,7 +162,10 @@ async function loadRepo() {
     // The server answers with the root of the working tree, which is not
     // always what was asked for: open a subdirectory and the repository above
     // it is what gets reviewed. Show the path that is actually loaded.
-    if (data.repoPath) document.getElementById('repoPath').value = data.repoPath;
+    if (data.repoPath) {
+      document.getElementById('repoPath').value = data.repoPath;
+      setRepoButton(data.repoPath);
+    }
 
     if (data.files.length === 0) {
       showStatus('No uncommitted changes found in the repository', 'error');
@@ -191,6 +194,20 @@ async function loadRepo() {
       updateCommentsSidebar();
 
       showStatus(`${data.message} - Loaded ${savedComments.length} saved comment(s)`, 'success');
+    }
+
+    // Open something. A loaded repository used to sit behind an empty pane
+    // until a file was clicked, which reads as a failure rather than as a
+    // result (#47). Done here rather than in `displayFiles` because the saved
+    // comments have to be in hand first, or the diff renders without them.
+    //
+    // The file already open wins if it is still in the list, so reloading a
+    // repository does not move you off what you were reading.
+    if (currentFiles.length > 0) {
+      const previous = currentFiles.findIndex(file => file.path === currentFile);
+      const opening = previous === -1 ? 0 : previous;
+
+      loadFile(currentFiles[opening].path, opening);
     }
 
   } catch (error) {
@@ -1066,6 +1083,7 @@ function resetApp() {
   comments = [];
 
   document.getElementById('repoPath').value = '';
+  setRepoButton(null);
   document.getElementById('sidebar').classList.add('hidden');
   document.getElementById('resizeHandle').classList.add('hidden');
   document.getElementById('codeSection').classList.add('hidden');
@@ -1466,6 +1484,16 @@ document.addEventListener('DOMContentLoaded', () => {
     list.addEventListener('keydown', onPickerActivate);
   }
 
+  // Escape, and a click on the dimmed area around it, both mean "never mind"
+  // -- but only when there is a review behind the picker to go back to.
+  document.addEventListener('keydown', event => {
+    if (event.key === 'Escape') closePicker();
+  });
+
+  document.getElementById('picker').addEventListener('click', event => {
+    if (event.target.id === 'picker') closePicker();
+  });
+
   // `reviewer /path/to/repo` opens the page with the repository in the query
   // string, so the review is on screen without anyone typing a path.
   const requestedRepo = new URLSearchParams(window.location.search).get('repo');
@@ -1493,14 +1521,63 @@ let browseAt = null;
 let browseParent = null;
 let browseIsRepository = false;
 
+/**
+ * Show the picker.
+ *
+ * With nothing open it is the page. With a review open it is a layer over the
+ * review, because being asked which repository you want should not cost you
+ * the one you are reading.
+ */
 function showPicker() {
+  const reviewing = currentRepoId !== null;
+
   document.getElementById('picker').classList.remove('hidden');
+  document.getElementById('picker').classList.toggle('as-overlay', reviewing);
+  document.getElementById('pickerClose').classList.toggle('hidden', !reviewing);
+
   loadRecent();
   loadBrowse(browseAt);
 }
 
 function hidePicker() {
   document.getElementById('picker').classList.add('hidden');
+}
+
+/** Dismiss the picker, which only means anything when there is something behind it. */
+function closePicker() {
+  if (currentRepoId !== null) hidePicker();
+}
+
+/**
+ * Reveal the path box, for pasting a path or typing one you already know.
+ *
+ * Kept out of the way rather than removed: a navigator is the slow way round
+ * when the path is already on your clipboard.
+ */
+function togglePathEntry() {
+  const entry = document.getElementById('pathEntry');
+  const toggle = document.getElementById('pathToggle');
+  const showing = entry.classList.toggle('hidden') === false;
+
+  toggle.setAttribute('aria-expanded', String(showing));
+
+  if (showing) {
+    const input = document.getElementById('repoPath');
+    input.focus();
+    input.select();
+  }
+}
+
+/**
+ * Name the repository on the button that opens the picker.
+ *
+ * @param {string|null} repoPath
+ */
+function setRepoButton(repoPath) {
+  const name = repoPath ? repoPath.split(/[\\/]/).filter(Boolean).pop() : null;
+
+  document.getElementById('repoButtonLabel').textContent = name ?? 'Open a repository';
+  document.getElementById('repoButton').title = repoPath ?? 'Choose a repository';
 }
 
 /**

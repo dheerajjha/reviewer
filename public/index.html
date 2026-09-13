@@ -12,12 +12,35 @@
     <div class="header-content">
       <h1>Code Reviewer</h1>
       <div class="header-actions">
-        <input
-          type="text"
-          id="repoPath"
-          placeholder="Enter local repository path..."
-          value="">
-        <button id="loadBtn" onclick="loadRepo()">Load Repository</button>
+        <button id="repoButton" class="repo-button" onclick="showPicker()">
+          <svg width="16" height="16" viewBox="0 0 16 16" fill="currentColor" aria-hidden="true">
+            <path d="M1.75 1.5a.25.25 0 00-.25.25v11.5c0 .138.112.25.25.25h12.5a.25.25 0 00.25-.25v-8.5a.25.25 0 00-.25-.25H7.5a.75.75 0 01-.6-.3L5.55 2.4a.25.25 0 00-.2-.1H1.75z"></path>
+          </svg>
+          <span id="repoButtonLabel">Open a repository</span>
+        </button>
+
+        <button
+          id="pathToggle"
+          class="icon-button"
+          onclick="togglePathEntry()"
+          title="Type or paste a path instead"
+          aria-label="Type or paste a path instead"
+          aria-expanded="false">
+          <svg width="16" height="16" viewBox="0 0 16 16" fill="currentColor" aria-hidden="true">
+            <path d="M1.75 3h12.5c.966 0 1.75.784 1.75 1.75v6.5A1.75 1.75 0 0114.25 13H1.75A1.75 1.75 0 010 11.25v-6.5C0 3.784.784 3 1.75 3zm0 1.5a.25.25 0 00-.25.25v6.5c0 .138.112.25.25.25h12.5a.25.25 0 00.25-.25v-6.5a.25.25 0 00-.25-.25H1.75zM3 6h1.5v1.5H3V6zm2.75 0h1.5v1.5h-1.5V6zM8.5 6H10v1.5H8.5V6zm2.75 0h1.5v1.5h-1.5V6zM3 8.75h1.5v1.5H3v-1.5zm2.75 0h4.5v1.5h-4.5v-1.5zm5.75 0H13v1.5h-1.5v-1.5z"></path>
+          </svg>
+        </button>
+
+        <div id="pathEntry" class="path-entry hidden">
+          <input
+            type="text"
+            id="repoPath"
+            placeholder="/path/to/repository"
+            spellcheck="false"
+            autocomplete="off"
+            value="">
+          <button id="loadBtn" onclick="loadRepo()">Load</button>
+        </div>
         <button id="submitReviewBtn" onclick="submitReview()" class="submit-btn hidden">
           Submit Review
         </button>
@@ -29,7 +52,15 @@
   <div class="main-container">
     <section id="picker" class="picker">
       <div class="picker-card">
-        <h2>Open a repository</h2>
+        <div class="picker-heading">
+          <h2>Open a repository</h2>
+          <button id="pickerClose" class="icon-button hidden" onclick="closePicker()"
+                  title="Keep the review open" aria-label="Keep the review open">
+            <svg width="16" height="16" viewBox="0 0 16 16" fill="currentColor" aria-hidden="true">
+              <path d="M3.72 3.72a.75.75 0 011.06 0L8 6.94l3.22-3.22a.75.75 0 111.06 1.06L9.06 8l3.22 3.22a.75.75 0 11-1.06 1.06L8 9.06l-3.22 3.22a.75.75 0 01-1.06-1.06L6.94 8 3.72 4.78a.75.75 0 010-1.06z"></path>
+            </svg>
+          </button>
+        </div>
 
         <section id="recentSection" class="picker-section hidden">
           <h3>Recent</h3>

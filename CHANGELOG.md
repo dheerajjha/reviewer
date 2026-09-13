@@ -24,6 +24,14 @@ adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
   repositories, because `~/.dotfiles` is one of the most commonly reviewed
   repositories there is.
 
+- **The header leads with the repository, not with a text box.** It used to
+  say *"Enter local repository path..."*, which asks the one thing somebody
+  opening this tool is least able to supply: the exact path, typed correctly,
+  from memory. It is a button now, showing what you have open; clicking it
+  brings up the picker over your review rather than instead of it. The path box
+  is still there behind the icon beside it, because pasting a path is a real
+  thing to want and a navigator is the slow way round when you already know.
+
 - **The command is installed under both of its names.** The package is
   published as `git-reviewer` — that is what the install line says to type —
   and the only command it created was `reviewer`, so typing the name you had
@@ -32,6 +40,15 @@ adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
   any other subcommand.
 
 ### Fixed
+
+- **A loaded repository shows a diff, instead of an empty pane.**
+  ([#47](https://github.com/dheerajjha/reviewer/issues/47))
+
+  The file list appeared and the code pane stayed blank until you clicked
+  something, so the moment the tool finished its job it looked like it had
+  failed. The first changed file opens on its own now — after the saved
+  comments are in hand, or it would render without them. Reloading a
+  repository keeps you on the file you were reading.
 
 - **A file or folder name containing a quote can no longer break out of the
   attribute it is written into.** The page escapes values with `escapeHtml`,
