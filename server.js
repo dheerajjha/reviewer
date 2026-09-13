@@ -7,7 +7,7 @@ const fs = require('fs').promises;
 const path = require('path');
 
 const { parseDiff } = require('./lib/diff');
-const { resolveRepoFile, PathEscapeError } = require('./lib/paths');
+const { REVIEWS_DIR, resolveRepoFile, PathEscapeError } = require('./lib/paths');
 const { collectWorkingChanges, collectCommitChanges } = require('./lib/changes');
 const { SessionStore } = require('./lib/sessions');
 const { normalizeComments } = require('./lib/comments');
@@ -18,8 +18,6 @@ const { readSavedComments, ReviewOwnershipError } = require('./lib/store');
 const DEFAULT_PORT = 4500;
 const DEFAULT_HOST = '127.0.0.1';
 
-/** Where comment state and submitted reviews are written. */
-const REVIEWS_DIR = path.join(__dirname, 'reviews');
 
 /** A path inside the repository that names nothing, on disk or at HEAD. */
 class FileNotFoundError extends Error {

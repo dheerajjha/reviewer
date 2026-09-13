@@ -4,13 +4,17 @@
 const fs = require('fs').promises;
 const path = require('path');
 
-const simpleGit = require('simple-git');
-
 const { parseArgs, buildUrl, UsageError, USAGE } = require('../lib/cli');
 const { openInBrowser } = require('../lib/browser');
-const { buildReviewDocument, filterReviewDocument, formatPrompt } = require('../lib/agent');
-const { readSavedComments, ReviewOwnershipError } = require('../lib/store');
-const { startServer, DEFAULT_PORT, DEFAULT_HOST, REVIEWS_DIR } = require('../server');
+const { formatPrompt } = require('../lib/agent');
+const { ReviewOwnershipError } = require('../lib/store');
+const { REVIEWS_DIR } = require('../lib/paths');
+const {
+  loadReviewDocument,
+  NoReviewError,
+  NoMatchingCommentsError
+} = require('../lib/export');
+const { startServer, DEFAULT_PORT, DEFAULT_HOST } = require('../server');
 const { version } = require('../package.json');
 
 /**
@@ -48,37 +52,21 @@ async function listen(port) {
 async function exportReview(options) {
   const repoPath = options.repoPath ?? process.cwd();
 
-  let comments;
+  let document;
   try {
-    ({ comments } = await readSavedComments(REVIEWS_DIR, repoPath));
+    document = await loadReviewDocument(REVIEWS_DIR, repoPath, { file: options.file });
   } catch (error) {
-    if (error instanceof ReviewOwnershipError) throw new UsageError(error.message);
+    // `lib/export` raises domain errors so that an MCP tool or an agent
+    // handover can answer them its own way. The terminal wants all three as
+    // the same usage error, with the same wording it has always printed.
+    if (
+      error instanceof NoReviewError ||
+      error instanceof NoMatchingCommentsError ||
+      error instanceof ReviewOwnershipError
+    ) {
+      throw new UsageError(error.message);
+    }
     throw error;
-  }
-
-  if (comments.length === 0) {
-    throw new UsageError(`No saved review for ${repoPath}. Review it first, then export.`);
-  }
-
-  // Recording the commit lets a consumer tell whether the tree has moved on
-  // since the review was written. Neither is fatal if git will not say.
-  const git = simpleGit(repoPath);
-  const head = await git.revparse(['HEAD']).then(sha => sha.trim()).catch(() => null);
-  const branch = await git.revparse(['--abbrev-ref', 'HEAD']).then(name => name.trim()).catch(() => null);
-
-  const document = filterReviewDocument(
-    buildReviewDocument({
-      repoPath,
-      comments,
-      generatedAt: new Date(),
-      head,
-      branch
-    }),
-    { file: options.file }
-  );
-
-  if (document.comments.length === 0) {
-    throw new UsageError(`The saved review for ${repoPath} has no comments for ${options.file}.`);
   }
 
   process.stdout.write(
