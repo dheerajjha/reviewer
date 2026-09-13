@@ -290,3 +290,83 @@ test('formatPrompt leaves an ordinary anchor on a three-backtick fence', () => {
   assert.equal(marker, '```');
   assert.deepEqual(content, ['const a = 1;']);
 });
+
+// --- ids have to be unique within the document (#26) ---------------------
+
+test('two comments on the same line get distinct ids', () => {
+  // In a diff the removed line and the line that replaced it can carry the
+  // same number, one on each side. Commenting on both is two ordinary
+  // clicks, and `<file>:<line>` collided — so a consumer keyed by id, which
+  // is what an id is for, silently kept one of them.
+  const document = buildReviewDocument({
+    repoPath: '/work/api',
+    generatedAt: new Date('2026-01-01T00:00:00Z'),
+    comments: [
+      { file: 'src/auth.js', line: 5, text: 'on the removed line', lineContent: 'a' },
+      { file: 'src/auth.js', line: 5, text: 'on the added line', lineContent: 'b' }
+    ]
+  });
+
+  const ids = document.comments.map(comment => comment.id);
+
+  assert.equal(new Set(ids).size, ids.length, `ids collided: ${ids.join(', ')}`);
+  assert.deepEqual(ids, ['src/auth.js:5', 'src/auth.js:5#2']);
+});
+
+test('a lone comment on a line keeps the bare file:line id', () => {
+  // Ids that churn are as bad as ids that collide: anything already keyed
+  // on them breaks. Only a genuine collision gets a suffix.
+  const document = buildReviewDocument({
+    repoPath: '/work/api',
+    generatedAt: new Date('2026-01-01T00:00:00Z'),
+    comments: [
+      { file: 'src/auth.js', line: 5, text: 'one' },
+      { file: 'src/db.js', line: 9, text: 'another' }
+    ]
+  });
+
+  assert.deepEqual(
+    document.comments.map(comment => comment.id),
+    ['src/auth.js:5', 'src/db.js:9']
+  );
+});
+
+test('ids are the same on a second export of the same review', () => {
+  // The format promises ids are stable across exports; the suffix must not
+  // depend on anything that moves between runs.
+  const comments = [
+    { file: 'a.js', line: 1, text: 'first' },
+    { file: 'a.js', line: 1, text: 'second' },
+    { file: 'a.js', line: 1, text: 'third' }
+  ];
+  const build = () => buildReviewDocument({
+    repoPath: '/work/api',
+    generatedAt: new Date(),
+    comments
+  }).comments.map(comment => comment.id);
+
+  assert.deepEqual(build(), build());
+  assert.deepEqual(build(), ['a.js:1', 'a.js:1#2', 'a.js:1#3']);
+});
+
+test('filtering to a file does not renumber the ids it keeps', () => {
+  // Ids are assigned before filtering, so the same comment carries the same
+  // id whether or not you asked for the whole review.
+  const args = {
+    repoPath: '/work/api',
+    generatedAt: new Date('2026-01-01T00:00:00Z'),
+    comments: [
+      { file: 'a.js', line: 1, text: 'one' },
+      { file: 'b.js', line: 2, text: 'two' },
+      { file: 'b.js', line: 2, text: 'three' }
+    ]
+  };
+  const full = buildReviewDocument(args);
+  const filtered = filterReviewDocument(buildReviewDocument(args), { file: 'b.js' });
+
+  assert.deepEqual(
+    filtered.comments.map(comment => comment.id),
+    full.comments.filter(comment => comment.file === 'b.js').map(comment => comment.id)
+  );
+  assert.deepEqual(filtered.comments.map(comment => comment.id), ['b.js:2', 'b.js:2#2']);
+});

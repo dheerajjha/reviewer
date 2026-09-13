@@ -80,7 +80,7 @@ Markdown that has to be parsed back out of prose.
 | `repository.branch` | Branch name, or `null`. |
 | `mode` | `working` (working tree vs `HEAD`), `lastCommit` (`HEAD` vs its parent), or `null` when exported outside a session. |
 | `summary` | `comments` and `files` counts. |
-| `comments[].id` | `<file>:<line>`. Stable across exports of the same review. |
+| `comments[].id` | `<file>:<line>`, with `#2`, `#3`&hellip; appended where that is not unique &mdash; in a diff the removed line and the line that replaced it can share a number, and both can carry a comment. Unique within the document and stable across exports of the same review. |
 | `comments[].file` | Repo-relative path. |
 | `comments[].line` | Line number when the comment was written — a hint, not an address. |
 | `comments[].anchor` | The exact source line, or `null` if none was recorded. **Locate comments by this.** |
