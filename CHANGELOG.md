@@ -50,6 +50,30 @@ adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
   comments are in hand, or it would render without them. Reloading a
   repository keeps you on the file you were reading.
 
+- **A file name is data, not the source of the handler that opens it.**
+  ([#46](https://github.com/dheerajjha/reviewer/issues/46))
+
+  The file rows, the comment controls and the comments sidebar built their
+  `onclick` handlers by writing a value into a JavaScript string literal inside
+  the attribute. A name carrying a quote ended that literal and the rest of the
+  name ran when the row was clicked — and a name is chosen by whatever
+  repository is open, which for this tool is the whole point: you are reviewing
+  code you did not write.
+
+  Escaping cannot close it, because a browser decodes the entities in an
+  attribute before handing what is left to the JavaScript parser. Handlers take
+  indices now and look the strings up in the page's own state; the one value
+  that is not an index, a fragment of selected code, travels in a `data-`
+  attribute and is read from the DOM when the handler runs. A test rejects any
+  future handler built from a string, and any interpolation not wrapped in
+  `Number(...)`.
+
+  Two further problems turned up while fixing it. The file list drew the name
+  into the row's *label* unescaped, so markup in a name rendered as markup with
+  nothing clicked at all. And the two Edit buttons had become live when
+  `escapeHtml` learned to escape quotes: the hand-rolled backslash escaping next
+  to them stopped matching anything.
+
 - **A file or folder name containing a quote can no longer break out of the
   attribute it is written into.** The page escapes values with `escapeHtml`,
   which escaped `&`, `<` and `>` — the DOM's own rules for a text node — and
