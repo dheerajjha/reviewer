@@ -85,6 +85,13 @@ adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
   review for a repository it was standing inside. The server and `export` both
   resolve to the root of the working tree first.
 
+- **The URL the command prints is readable again.** `encodeURIComponent`
+  escapes slashes, which a query value does not need — RFC 3986 has
+  `query = *( pchar / "/" / "?" )` — so the most prominent line on screen read
+  `?repo=%2FUsers%2Fyou%2Fwork%2Fapi`. Everything else is still encoded,
+  including the characters that would otherwise end the query and take the rest
+  of the path with them.
+
 ## [2.2.0] - 2026-09-13
 
 ### Fixed
