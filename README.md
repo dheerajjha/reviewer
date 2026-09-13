@@ -8,22 +8,29 @@
 
 ![Plain grey code lines on the left resolving into colored diff stripes, with threaded comment markers attached in the right margin](docs/banner.jpg)
 
-Review code before it becomes a pull request. `reviewer` opens any local git
-repository in your browser, shows what changed, and lets you leave inline
-comments with threaded follow-ups — against your working directory, without a
-branch, a remote, a push, or an account. Comments persist between sessions and
-survive the code moving underneath them, so you can review, edit, and come back
-tomorrow to a review that still points at the right lines. When you are done it
-writes a plain Markdown file you can paste anywhere.
+When an agent writes the code, reading it becomes the bottleneck — and the tool
+built for reading a diff, the pull request, wants a branch, a remote and a push
+you are not ready to make yet.
+
+`reviewer` gives you the pull-request view of your working directory instead:
+inline comments with threaded follow-ups, each attached to the exact line you
+mean, with no branch, no remote, no push and no account. Then it hands the
+marked-up review back to the agent to act on.
 
 ```bash
-cd ~/work/my-app
-npx git-reviewer .
+npx git-reviewer .                       # read the diff, leave comments
+npx git-reviewer export . --format prompt | claude -p "Apply this review."
 ```
 
-That starts a local server and opens your browser on the repository you named.
-There is nothing to install into the project, nothing to sign in to, and
-nothing leaves your machine.
+The first command starts a local server and opens your browser on the
+repository you named. Nothing is installed into the project, there is nothing
+to sign in to, and nothing leaves your machine.
+
+Comments persist between sessions and survive the code moving underneath them —
+including the agent's own edits, which shift every line below the first change —
+so a review you wrote yesterday still points at the right lines today. When you
+would rather read the review than pipe it, it also writes a plain Markdown file
+you can paste anywhere.
 
 ![The app reviewing a modified file: changed files on the left, a colour-coded diff in the middle with an inline comment and a threaded follow-up attached to line 10, and a comments sidebar on the right](docs/screenshot-comments.png)
 

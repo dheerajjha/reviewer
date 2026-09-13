@@ -1,7 +1,7 @@
 {
   "name": "git-reviewer",
   "version": "2.0.0",
-  "description": "Review local git changes in your browser with inline comments and threaded follow-ups \u2014 no branch, remote, or account required",
+  "description": "Review your coding agent's changes like a pull request \u2014 locally, with inline comments and threaded follow-ups, then hand the marked-up review back to the agent",
   "author": "Dheeraj Jha",
   "license": "MIT",
   "homepage": "https://github.com/dheerajjha/reviewer#readme",
@@ -14,11 +14,17 @@
   },
   "keywords": [
     "code-review",
+    "code-review-tool",
     "git",
     "diff",
     "review",
     "cli",
-    "developer-tools"
+    "developer-tools",
+    "ai",
+    "agent",
+    "coding-agent",
+    "llm",
+    "local-first"
   ],
   "engines": {
     "node": ">=18.0.0"
