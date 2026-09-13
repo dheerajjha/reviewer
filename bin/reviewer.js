@@ -8,7 +8,7 @@ const { parseArgs, buildUrl, UsageError, USAGE } = require('../lib/cli');
 const { openInBrowser } = require('../lib/browser');
 const { formatPrompt } = require('../lib/agent');
 const { ReviewOwnershipError } = require('../lib/store');
-const { REVIEWS_DIR } = require('../lib/paths');
+const { reviewsDir, adoptLegacyReviews } = require('../lib/paths');
 const {
   loadReviewDocument,
   NoReviewError,
@@ -54,7 +54,7 @@ async function exportReview(options) {
 
   let document;
   try {
-    document = await loadReviewDocument(REVIEWS_DIR, repoPath, { file: options.file });
+    document = await loadReviewDocument(reviewsDir(), repoPath, { file: options.file });
   } catch (error) {
     // `lib/export` raises domain errors so that an MCP tool or an agent
     // handover can answer them its own way. The terminal wants all three as
@@ -78,6 +78,19 @@ async function exportReview(options) {
 
 async function main() {
   const options = parseArgs(process.argv.slice(2));
+
+  // Reviews written by a version that kept them inside the package directory
+  // are moved out before anything reads them. Once, synchronously, so no read
+  // can start against a half-populated directory. See #33.
+  const adopted = adoptLegacyReviews();
+  if (adopted > 0) {
+    console.log(
+      `  Copied ${adopted} saved review${adopted === 1 ? '' : 's'} out of the ` +
+        `install directory to\n  ${reviewsDir()}\n  so that upgrading or ` +
+        'reinstalling this package can no longer delete them.\n' +
+        '  The originals are left where they were.\n'
+    );
+  }
 
   if (options.help) {
     process.stdout.write(USAGE);

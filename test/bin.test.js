@@ -3,8 +3,17 @@
 const test = require('node:test');
 const assert = require('node:assert/strict');
 const fs = require('node:fs/promises');
+const fsSync = require('node:fs');
 const path = require('node:path');
 const { execFile } = require('node:child_process');
+const os = require('node:os');
+
+// Point the whole process -- and every CLI it spawns, which inherit this env
+// -- at a throwaway directory. These tests write real review files, and since
+// #33 the default location is the developer's own data directory. Set before
+// `../server` is required, and read on every access, so both this file and the
+// child processes resolve to the same throwaway.
+process.env.REVIEWER_DATA_DIR = fsSync.mkdtempSync(path.join(os.tmpdir(), 'reviewer-bin-'));
 
 const { createTempRepo, commitFiles, cleanup } = require('./helpers/repo');
 const { commentsFilename } = require('../lib/review');

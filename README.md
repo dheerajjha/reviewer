@@ -3,7 +3,7 @@
 [![CI](https://github.com/dheerajjha/reviewer/actions/workflows/ci.yml/badge.svg)](https://github.com/dheerajjha/reviewer/actions/workflows/ci.yml)
 [![License: MIT](https://img.shields.io/badge/license-MIT-blue.svg)](LICENSE)
 [![Node](https://img.shields.io/badge/node-%3E%3D18-brightgreen.svg)](package.json)
-[![Tests](https://img.shields.io/badge/tests-186-brightgreen.svg)](test/)
+[![Tests](https://img.shields.io/badge/tests-196-brightgreen.svg)](test/)
 [![Dependencies](https://img.shields.io/badge/dependencies-3-brightgreen.svg)](package.json)
 
 ![Plain grey code lines on the left resolving into colored diff stripes, with threaded comment markers attached in the right margin](docs/banner.jpg)
@@ -109,8 +109,20 @@ shown in full, read back out of `HEAD`:
 
 ## What it writes
 
-Two files, both under `reviews/`, both plain text you can read without this
-app:
+Two files, both plain text you can read without this app, both in a per-user
+data directory outside the install:
+
+| platform | location |
+| --- | --- |
+| macOS | `~/Library/Application Support/git-reviewer` |
+| Linux, BSD | `$XDG_DATA_HOME/git-reviewer`, else `~/.local/share/git-reviewer` |
+| Windows | `%LOCALAPPDATA%\git-reviewer` |
+
+Set `REVIEWER_DATA_DIR` to put them anywhere else. They are deliberately *not*
+kept inside the installed package: that directory belongs to npm, which deletes
+it on upgrade and on uninstall, and `npx` puts it in a cache that is pruned
+without warning. A review you wrote by hand is the most expensive thing this
+tool holds.
 
 - **`.code-review-comments-<repo>.json`** — the live state of the review. It is
   written on every edit and is the source of truth; reopening the same
@@ -220,7 +232,7 @@ rather than a public issue.
 
 ```bash
 npm install           # 3 dependencies, no build step, ~6MB
-npm test              # 186 tests
+npm test              # 196 tests
 npm run test:watch
 npm run test:coverage
 ```
@@ -268,7 +280,6 @@ including some tagged
 [good first issue](https://github.com/dheerajjha/reviewer/issues?q=is%3Aissue+is%3Aopen+label%3A%22good+first+issue%22).
 The ones most likely to change how the tool feels:
 
-- [#1](https://github.com/dheerajjha/reviewer/issues/1) — reviews are stored inside the install rather than with the repository
 - [#2](https://github.com/dheerajjha/reviewer/issues/2) — give comments a state, so a review can be worked through and marked off
 - [#3](https://github.com/dheerajjha/reviewer/issues/3) — report whether each anchor still matches the file
 - [#4](https://github.com/dheerajjha/reviewer/issues/4) — expose the review over MCP, so an agent works through it interactively

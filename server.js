@@ -7,7 +7,11 @@ const fs = require('fs').promises;
 const path = require('path');
 
 const { parseDiff } = require('./lib/diff');
-const { REVIEWS_DIR, resolveRepoFile, PathEscapeError } = require('./lib/paths');
+const {
+  reviewsDir: resolveReviewsDir,
+  resolveRepoFile,
+  PathEscapeError
+} = require('./lib/paths');
 const { collectWorkingChanges, collectCommitChanges } = require('./lib/changes');
 const { SessionStore } = require('./lib/sessions');
 const { normalizeComments } = require('./lib/comments');
@@ -44,7 +48,7 @@ class FileNotFoundError extends Error {
  */
 function createApp(options = {}) {
   const {
-    reviewsDir = REVIEWS_DIR,
+    reviewsDir = resolveReviewsDir(),
     sessions = new SessionStore(),
     git: gitFactory = simpleGit
   } = options;
@@ -416,4 +420,11 @@ if (require.main === module) {
   });
 }
 
-module.exports = { createApp, startServer, DEFAULT_PORT, DEFAULT_HOST, REVIEWS_DIR };
+module.exports = { createApp, startServer, DEFAULT_PORT, DEFAULT_HOST };
+
+// Re-exported as a getter so existing callers keep working and still see
+// REVIEWER_DATA_DIR. See lib/paths.js.
+Object.defineProperty(module.exports, 'REVIEWS_DIR', {
+  get: resolveReviewsDir,
+  enumerable: true
+});
