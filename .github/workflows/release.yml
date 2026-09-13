@@ -77,7 +77,7 @@ jobs:
         run: |
           npm pack --silent
           tar -tzf git-reviewer-*.tgz > /tmp/files.txt
-          for required in package/bin/reviewer.js package/server.js package/lib/review.js package/lib/store.js package/lib/agent.js package/public/index.html; do
+          for required in package/bin/reviewer.js package/server.js package/lib/review.js package/lib/store.js package/lib/agent.js package/lib/paths.js package/lib/export.js package/public/index.html; do
             grep -qx "$required" /tmp/files.txt || { echo "::error::$required missing from the tarball"; exit 1; }
           done
           echo "tarball contents verified ($(wc -l < /tmp/files.txt) entries)"

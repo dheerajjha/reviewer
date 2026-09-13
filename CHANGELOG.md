@@ -6,12 +6,49 @@ adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
 ## [Unreleased]
 
+## [2.1.0] - 2026-09-13
+
 ### Added
 
 - **`reviewer export --file <path>`** filters agent-ready JSON or prompt output
   to one repo-relative file and reports summary counts for what was emitted.
 
+- **`lib/export.js`**, so something other than the CLI can produce a
+  `code-review/v1` document. `loadReviewDocument(reviewsDir, repoPath, {file})`
+  is the chain that was previously assembled inside an un-exported function in
+  `bin/reviewer.js`, and `listReviews(reviewsDir)` — which did not exist in any
+  form — enumerates the repositories that have a saved review. Nothing in
+  `lib/` knows about the CLI: the three conditions the terminal reports as
+  usage errors are raised as domain errors and translated at the boundary.
+
 ### Fixed
+
+- **Saved reviews are no longer destroyed by upgrading or uninstalling the
+  package.** Reviews were written to a `reviews/` directory inside the
+  installed package — a directory npm owns and replaces. Both of the ordinary
+  things npm does to it deleted the user's work: `npm uninstall` took the
+  reviews with it, and installing any newer version replaced the package
+  directory and everything in it. `npx git-reviewer .`, the command the README
+  leads with, wrote into the npx cache, which is pruned on npm's schedule
+  rather than the user's. A *same-version* `npm i --force` did not wipe them,
+  which made it worse rather than better: the loss fired only on upgrade,
+  exactly when nobody is expecting it. Reviews now live in a per-user data
+  directory — `~/Library/Application Support/git-reviewer` on macOS,
+  `$XDG_DATA_HOME/git-reviewer` or `~/.local/share/git-reviewer` on Linux,
+  `%LOCALAPPDATA%\git-reviewer` on Windows — overridable with
+  `REVIEWER_DATA_DIR`. Reviews written by an older version are copied out of
+  the install on first run, once, leaving the originals in place. This also
+  makes `npx git-reviewer .` followed by `npx git-reviewer export .` work:
+  before, those two commands could resolve to different directories and the
+  second would answer "No saved review".
+
+- **`docs/agent-format.md` no longer documents a staleness check that cannot
+  fire.** It told consumers, in two places, to compare `repository.head`
+  against the current `HEAD` to detect that the tree had moved on. `head` is
+  read from the working tree when the document is produced, not recorded when
+  the review was written, so that comparison is always current `HEAD` against
+  itself and always agrees. The page now says what the field is and points at
+  `comments[].anchor`, which is the mechanism that does work.
 
 - **A comment anchored on a Markdown code fence no longer corrupts the agent
   prompt.** `reviewer export --format prompt` wrapped every anchor and

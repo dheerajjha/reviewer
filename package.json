@@ -1,6 +1,6 @@
 {
   "name": "git-reviewer",
-  "version": "2.0.0",
+  "version": "2.1.0",
   "description": "Review your coding agent's changes like a pull request \u2014 locally, with inline comments and threaded follow-ups, then hand the marked-up review back to the agent",
   "author": "Dheeraj Jha",
   "license": "MIT",
