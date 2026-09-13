@@ -76,7 +76,7 @@ Markdown that has to be parsed back out of prose.
 | `generatedAt` | ISO 8601, when the document was produced. |
 | `repository.path` | Absolute path of the reviewed repository. |
 | `repository.name` | Directory name, sanitized for use in filenames. |
-| `repository.head` | The commit reviewed, or `null` if git would not say. Compare it against the current `HEAD` to tell whether the tree has moved on. |
+| `repository.head` | The commit the working tree was on **when this document was produced** — not when the review was written. `null` if git would not say. See the note below before using it to detect staleness. |
 | `repository.branch` | Branch name, or `null`. |
 | `mode` | `working` (working tree vs `HEAD`), `lastCommit` (`HEAD` vs its parent), or `null` when exported outside a session. |
 | `summary` | `comments` and `files` counts. |
@@ -94,9 +94,17 @@ files were first commented on, and ordered by line within a file.
 
 ## Notes for consumers
 
-- **Check `repository.head`.** If it does not match the current `HEAD`, the
-  code has changed since the review; anchors may not be found, and that is
-  worth reporting rather than working around.
+- **Do not use `repository.head` to detect staleness — it cannot work yet.**
+  It is read from the working tree at the moment the document is produced, not
+  recorded when the review was written, so comparing it against the current
+  `HEAD` compares a value with itself and always agrees. This document
+  previously told you to make exactly that comparison; that advice was wrong.
+  Tracked as [#32](https://github.com/dheerajjha/reviewer/issues/32), which has
+  to change the stored format to fix.
+- **The anchor is the mechanism that does work.** `comments[].anchor` is the
+  exact source line the comment was left on, so a comment can still be located
+  after the tree moves — including after your own first edit shifts every line
+  below it.
 - **Treat a missing anchor as a question, not a licence to guess.** If the line
   is gone, the change it commented on may already have been made.
 - Both formats are printed to stdout and nothing else is, so they pipe cleanly.
