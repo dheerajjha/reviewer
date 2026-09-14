@@ -6,6 +6,28 @@ adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
 ## [Unreleased]
 
+## [2.4.1] - 2026-09-14
+
+### Fixed
+
+- **`reviewer | claude -p "Apply this review."` actually reaches the agent.**
+  The command 2.4.0 leads with did not work. `claude -p` waits three seconds
+  for the first byte on piped stdin and then proceeds without it — it prints a
+  warning, runs with no review at all, and exits 0, so nothing anywhere reports
+  a failure. Reviewing takes minutes, so the review always arrived long after
+  the pipe had been abandoned, and the agent was asked to apply a review it had
+  never received.
+
+  One newline is written to stdout at startup now, which holds the stream open.
+  Measured against claude 2.1.270: it is a *first-byte* timeout, not a total
+  one — a producer silent for eight seconds had its instruction ignored and the
+  file left unchanged; the same producer emitting one newline first had it
+  applied. Verified end to end after the fix, submitting a review twelve
+  seconds in: the agent received it and made the change.
+
+  A leading blank line costs nothing; the review is Markdown and every other
+  reader of a pipe is indifferent to it.
+
 ## [2.4.0] - 2026-09-14
 
 ### Added
@@ -415,7 +437,8 @@ Initial release: Electron desktop app and web mode for reviewing local git
 changes with inline comments, threaded follow-ups, persistent storage, and a
 GitHub-style diff view.
 
-[Unreleased]: https://github.com/dheerajjha/reviewer/compare/v2.4.0...HEAD
+[Unreleased]: https://github.com/dheerajjha/reviewer/compare/v2.4.1...HEAD
+[2.4.1]: https://github.com/dheerajjha/reviewer/compare/v2.4.0...v2.4.1
 [2.4.0]: https://github.com/dheerajjha/reviewer/compare/v2.3.1...v2.4.0
 [2.3.1]: https://github.com/dheerajjha/reviewer/compare/v2.3.0...v2.3.1
 [2.3.0]: https://github.com/dheerajjha/reviewer/compare/v2.2.0...v2.3.0

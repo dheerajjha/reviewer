@@ -365,7 +365,8 @@ test('submitting a review writes it to stdout and the command exits', async t =>
   assert.equal(await exited, 0, 'the command finishes once the review is out');
 
   const piped = stdout();
-  assert.match(piped, /^# Code review to address/);
+  // A newline is written at startup to hold the pipe open -- see bin/reviewer.js.
+  assert.match(piped, /^\n?# Code review to address/);
   assert.match(piped, /Needs a test\./);
   assert.match(piped, /app\.js/);
 });
@@ -409,7 +410,7 @@ test('the banner says the review will be written out, when something is reading'
   assert.doesNotMatch(output, /Press Ctrl\+C/);
 });
 
-test('stopping without submitting leaves stdout empty rather than half a review', async t => {
+test('stopping without submitting sends no review, only the byte holding the pipe', async t => {
   const repoPath = await createTempRepo();
   t.after(() => cleanup(repoPath));
   await commitFiles(repoPath, { 'app.js': 'a\n' }, 'initial');
@@ -419,5 +420,23 @@ test('stopping without submitting leaves stdout empty rather than half a review'
   child.kill('SIGINT');
   await exited;
 
-  assert.equal(stdout(), '');
+  // Not empty: one newline goes out at startup so a reader waiting on the
+  // first byte does not give up during the minutes a review takes. What must
+  // never appear is part of a review.
+  assert.equal(stdout(), '\n');
+});
+
+test('the first byte goes out immediately, not when the review is submitted', async t => {
+  const repoPath = await createTempRepo();
+  t.after(() => cleanup(repoPath));
+  await commitFiles(repoPath, { 'app.js': 'a\n' }, 'initial');
+
+  const { child, stdout } = await serve([repoPath]);
+  t.after(() => child.kill('SIGKILL'));
+
+  // `claude -p` abandons piped stdin if nothing arrives within three seconds,
+  // then proceeds without it and exits 0 -- so the agent is asked to apply a
+  // review it never received, and nothing reports a failure. Reviewing takes
+  // minutes. By the time the banner is up, the pipe must already be held.
+  assert.equal(stdout(), '\n');
 });

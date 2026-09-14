@@ -172,6 +172,25 @@ async function main() {
   // what to run next, and keeps serving.
   const handingOff = !process.stdout.isTTY;
 
+  // One newline, now, before anything else happens.
+  //
+  // This looks pointless and is not. A reader on the other end of the pipe may
+  // give up waiting for the first byte long before there is a review to send —
+  // `claude -p` waits three seconds and then proceeds without stdin at all,
+  // printing a warning and exiting 0, so the whole thing fails silently and
+  // the agent is asked to apply a review it never received. Reviewing takes
+  // minutes, not seconds. A single byte at startup holds the stream open; the
+  // rest arrives whenever the review is submitted.
+  //
+  // Measured against claude 2.1.270: producer silent for 8s then sending the
+  // instruction, the instruction was ignored and the file left unchanged; the
+  // same producer emitting one newline first had it applied. It is a
+  // first-byte timeout, not a total one.
+  //
+  // A leading blank line costs nothing — the review is Markdown, and every
+  // other consumer of a pipe is indifferent to it.
+  if (handingOff) process.stdout.write('\n');
+
   let handedOff = false;
   const stop = () => {
     server.close(() => process.exit(0));
