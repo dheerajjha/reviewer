@@ -6,6 +6,8 @@ adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
 ## [Unreleased]
 
+## [2.5.0] - 2026-09-14
+
 ### Changed
 
 - **The how-to is a modal that shows you, not a paragraph that tells you.**
@@ -456,7 +458,8 @@ Initial release: Electron desktop app and web mode for reviewing local git
 changes with inline comments, threaded follow-ups, persistent storage, and a
 GitHub-style diff view.
 
-[Unreleased]: https://github.com/dheerajjha/reviewer/compare/v2.4.1...HEAD
+[Unreleased]: https://github.com/dheerajjha/reviewer/compare/v2.5.0...HEAD
+[2.5.0]: https://github.com/dheerajjha/reviewer/compare/v2.4.1...v2.5.0
 [2.4.1]: https://github.com/dheerajjha/reviewer/compare/v2.4.0...v2.4.1
 [2.4.0]: https://github.com/dheerajjha/reviewer/compare/v2.3.1...v2.4.0
 [2.3.1]: https://github.com/dheerajjha/reviewer/compare/v2.3.0...v2.3.1
