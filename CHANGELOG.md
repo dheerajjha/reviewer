@@ -6,6 +6,25 @@ adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
 ## [Unreleased]
 
+### Changed
+
+- **The how-to is a modal that shows you, not a paragraph that tells you.**
+  It was four lines of prose pinned above the diff. It said the right things
+  and nobody read them, because a wall of text is what a person skips when they
+  are trying to get to the code.
+
+  **Reviewing, in four moves** opens by itself the first time you review
+  anything, and lives behind the `?` in the header afterwards. Each move is a
+  small animation of the gesture: a pointer moving to the gutter and a comment
+  box opening; a selection sweeping across a line and becoming a quote; a reply
+  threading in; a terminal typing the command and the review flowing back out.
+
+  The animations are CSS, not video. Four clips would be about a megabyte in a
+  package that is currently 55KB, and would be soft on a retina screen; these
+  are a couple of kilobytes, sharp at any density, and inherit the palette so
+  they keep matching the app when it changes. `prefers-reduced-motion` stops
+  them, and the mocks still read as diagrams standing still.
+
 ## [2.4.1] - 2026-09-14
 
 ### Fixed

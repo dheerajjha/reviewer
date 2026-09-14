@@ -210,6 +210,7 @@ async function loadRepo() {
       const opening = previous === -1 ? 0 : previous;
 
       loadFile(currentFiles[opening].path, opening);
+      offerHelpOnce();
     }
 
   } catch (error) {
@@ -1624,8 +1625,6 @@ document.addEventListener('DOMContentLoaded', () => {
     }
   });
 
-  restoreHowTo();
-
   for (const id of ['recentList', 'browseList']) {
     const list = document.getElementById(id);
     list.addEventListener('click', onPickerActivate);
@@ -1635,7 +1634,14 @@ document.addEventListener('DOMContentLoaded', () => {
   // Escape, and a click on the dimmed area around it, both mean "never mind"
   // -- but only when there is a review behind the picker to go back to.
   document.addEventListener('keydown', event => {
-    if (event.key === 'Escape') closePicker();
+    if (event.key !== 'Escape') return;
+
+    // Topmost first: the help sits over the picker, which sits over a review.
+    if (!document.getElementById('helpModal').classList.contains('hidden')) {
+      closeHelp();
+      return;
+    }
+    closePicker();
   });
 
   document.getElementById('picker').addEventListener('click', event => {
@@ -1883,53 +1889,48 @@ function onPickerActivate(event) {
   if (into) loadBrowse(into.dataset.into);
 }
 
-
-/* How to comment
+/* How to review
  * ---------------------------------------------------------------------------
- * Open until it is dismissed, then remembered as dismissed. A hint that cannot
- * be turned off becomes furniture, and a hint that has to be found is not one.
+ * Shown once, on the first review this browser ever opens, and after that only
+ * when asked for. The gestures here are not guessable -- a column of line
+ * numbers does not look clickable -- but they are learned in one go, and a
+ * panel that keeps explaining them afterwards is furniture.
  */
 
-/** Where the dismissal is remembered. Per browser; it is a convenience, not state. */
-const HOW_TO_KEY = 'reviewer.howTo.collapsed';
+/** Set the first time the help has been seen. Per browser; a convenience, not state. */
+const HELP_SEEN_KEY = 'reviewer.help.seen';
 
-/**
- * @returns {boolean} whether it has been collapsed before
- */
-function howToWasCollapsed() {
+/** @returns {boolean} */
+function helpWasSeen() {
   try {
-    return window.localStorage.getItem(HOW_TO_KEY) === 'true';
+    return window.localStorage.getItem(HELP_SEEN_KEY) === 'true';
   } catch {
-    // A private window, or site data blocked. Showing the hint again is a far
-    // better failure than not rendering the panel at all.
+    // Private window, or site data blocked. Showing it again is the harmless
+    // direction to fail in.
     return false;
   }
 }
 
-/**
- * @param {boolean} collapsed
- */
-function rememberHowTo(collapsed) {
+function openHelp() {
+  document.getElementById('helpModal').classList.remove('hidden');
   try {
-    window.localStorage.setItem(HOW_TO_KEY, String(collapsed));
+    window.localStorage.setItem(HELP_SEEN_KEY, 'true');
   } catch {
-    // Nothing to do. It reopens next time, which is the harmless direction.
+    // Nothing to do; it opens again next time.
   }
 }
 
-function toggleHowTo() {
-  const panel = document.getElementById('howTo');
-  const collapsed = panel.classList.toggle('collapsed');
-
-  document.getElementById('howToToggle').setAttribute('aria-expanded', String(!collapsed));
-  rememberHowTo(collapsed);
+function closeHelp() {
+  document.getElementById('helpModal').classList.add('hidden');
 }
 
-function restoreHowTo() {
-  const panel = document.getElementById('howTo');
-  if (!panel) return;
-
-  const collapsed = howToWasCollapsed();
-  panel.classList.toggle('collapsed', collapsed);
-  document.getElementById('howToToggle').setAttribute('aria-expanded', String(!collapsed));
+/**
+ * Offer it unprompted the first time, once a repository is actually on screen.
+ *
+ * Not at page load: with nothing open there is nothing to apply it to, and it
+ * would be the first thing between somebody and the tool they just started.
+ */
+function offerHelpOnce() {
+  if (helpWasSeen()) return;
+  openHelp();
 }

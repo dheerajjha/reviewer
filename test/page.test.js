@@ -53,13 +53,13 @@ test('the path box survives, whatever the header looks like', () => {
   assert.match(html, /id="pathToggle"/);
 });
 
-test('the picker and the hint panel declare the elements the script reaches for', () => {
+test('the picker and the help modal declare the elements the script reaches for', () => {
   const html = fs.readFileSync(INDEX_HTML, 'utf-8');
 
   // Both lists work by delegation from these two containers. Without them the
   // rows render and nothing happens when they are clicked.
   for (const id of ['recentList', 'browseList', 'browsePath', 'browseUpBtn', 'pickerClose',
-                    'howTo', 'howToToggle', 'howToBody']) {
+                    'helpModal', 'helpButton']) {
     assert.match(html, new RegExp(`id="${id}"`), `#${id} is missing from public/index.html`);
   }
 });

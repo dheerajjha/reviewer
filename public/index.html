@@ -19,6 +19,13 @@
           <span id="repoButtonLabel">Open a repository</span>
         </button>
 
+        <button id="helpButton" class="icon-button" onclick="openHelp()"
+                title="How to review" aria-label="How to review">
+          <svg width="16" height="16" viewBox="0 0 16 16" fill="currentColor" aria-hidden="true">
+            <path d="M8 0a8 8 0 100 16A8 8 0 008 0zM6.05 6.04a.75.75 0 01-1.45-.38 3.5 3.5 0 016.86.86c0 1.23-.67 1.93-1.28 2.4l-.13.1c-.61.47-.8.68-.8 1.13a.75.75 0 01-1.5 0c0-1.23.67-1.93 1.28-2.4l.13-.1c.61-.47.8-.68.8-1.13a2 2 0 00-3.91-.48zM9 12.5a1 1 0 11-2 0 1 1 0 012 0z"></path>
+          </svg>
+        </button>
+
         <button
           id="pathToggle"
           class="icon-button"
@@ -81,6 +88,74 @@
       </div>
     </section>
 
+    <div id="helpModal" class="help-modal hidden" onclick="if (event.target.id === 'helpModal') closeHelp()">
+      <div class="help-card" role="dialog" aria-modal="true" aria-labelledby="helpTitle">
+        <div class="help-head">
+          <h2 id="helpTitle">Reviewing, in four moves</h2>
+          <button class="icon-button" onclick="closeHelp()" aria-label="Close">
+            <svg width="16" height="16" viewBox="0 0 16 16" fill="currentColor" aria-hidden="true">
+              <path d="M3.72 3.72a.75.75 0 011.06 0L8 6.94l3.22-3.22a.75.75 0 111.06 1.06L9.06 8l3.22 3.22a.75.75 0 11-1.06 1.06L8 9.06l-3.22 3.22a.75.75 0 01-1.06-1.06L6.94 8 3.72 4.78a.75.75 0 010-1.06z"></path>
+            </svg>
+          </button>
+        </div>
+
+        <div class="help-steps">
+          <section class="help-step">
+            <div class="help-demo demo-click" aria-hidden="true">
+              <div class="m-row"><span class="m-num">7</span><span class="m-code"></span></div>
+              <div class="m-row m-target"><span class="m-num">8</span><span class="m-code"></span></div>
+              <div class="m-row"><span class="m-num">9</span><span class="m-code"></span></div>
+              <div class="m-box"></div>
+              <div class="m-cursor"></div>
+            </div>
+            <h3>Click a line number</h3>
+            <p>That is the whole gesture. Deleted lines take comments too — often the
+              most useful note is about code that was removed.</p>
+          </section>
+
+          <section class="help-step">
+            <div class="help-demo demo-select" aria-hidden="true">
+              <div class="m-row"><span class="m-num">8</span><span class="m-code m-long"><span class="m-sel"></span></span></div>
+              <div class="m-quote"></div>
+              <div class="m-cursor"></div>
+            </div>
+            <h3>Hold <kbd>⌘</kbd> and drag to quote</h3>
+            <p>Select part of a line first, then click its number. The exact fragment
+              is quoted in the comment, so there is no ambiguity about what you meant.</p>
+          </section>
+
+          <section class="help-step">
+            <div class="help-demo demo-thread" aria-hidden="true">
+              <div class="m-comment"></div>
+              <div class="m-reply"></div>
+            </div>
+            <h3>Replies thread</h3>
+            <p>Follow up on your own comment as the code changes underneath it.
+              Everything saves as you type — there is no save button.</p>
+          </section>
+
+          <section class="help-step">
+            <div class="help-demo demo-handoff" aria-hidden="true">
+              <div class="m-term"><span class="m-prompt">$</span><span class="m-cmd"></span></div>
+              <div class="m-flow"></div>
+              <div class="m-done">✓</div>
+            </div>
+            <h3>Submit, and it goes back</h3>
+            <p>Run it as <code>reviewer | claude -p "Apply this review."</code> and
+              submitting hands the review straight to the agent, which makes the changes.</p>
+          </section>
+        </div>
+
+        <div class="help-foot">
+          <span class="help-keys">
+            <kbd>⌘</kbd><kbd>Enter</kbd> save · <kbd>Esc</kbd> cancel ·
+            <kbd>↑</kbd><kbd>↓</kbd> move between files
+          </span>
+          <button class="help-done" onclick="closeHelp()">Got it</button>
+        </div>
+      </div>
+    </div>
+
     <aside id="sidebar" class="sidebar hidden">
       <div class="sidebar-header">
         <h2>Changed Files</h2>
@@ -101,28 +176,6 @@
           Full Context
         </button>
       </div>
-      <section id="howTo" class="how-to">
-        <button
-          id="howToToggle"
-          class="how-to-toggle"
-          onclick="toggleHowTo()"
-          aria-expanded="true"
-          aria-controls="howToBody">
-          <span class="how-to-chevron" aria-hidden="true">▾</span>
-          How to comment
-        </button>
-        <div id="howToBody" class="how-to-body">
-          <p><strong>Click a line number</strong> in the left column to comment on that line.
-            Removed lines work too — the most useful note is often about deleted code.</p>
-          <p><strong>Hold <kbd>⌘</kbd>/<kbd>Ctrl</kbd> and drag</strong> to select part of a line,
-            then click the line number. The selection is quoted in the comment.</p>
-          <p><kbd>⌘</kbd>/<kbd>Ctrl</kbd> + <kbd>Enter</kbd> saves ·
-            <kbd>Esc</kbd> cancels ·
-            <kbd>↑</kbd> <kbd>↓</kbd> move between files</p>
-          <p>Everything saves as you type. <strong>Submit Review</strong> when you are done.</p>
-        </div>
-      </section>
-
       <div id="codeViewer" class="code-viewer"></div>
     </main>
 

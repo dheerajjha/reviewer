@@ -1367,6 +1367,53 @@ button:disabled {
   align-items: flex-start;
 }
 
+/* Where the review went
+ *
+ * The modal used to offer a download and nothing else, which is an odd thing
+ * to put in front of somebody who started this from a terminal. The review is
+ * already a file; knowing where is more useful than a second copy of it.
+ */
+.review-destination {
+  display: flex;
+  align-items: baseline;
+  gap: 10px;
+  margin-bottom: 14px;
+  padding: 10px 12px;
+  border: 1px solid #e1e4e8;
+  border-radius: 6px;
+  background: #f6f8fa;
+  font-size: 13px;
+  color: #24292e;
+}
+
+.review-destination.handed-off {
+  border-color: #b7e0c2;
+  background: #eefcf1;
+}
+
+.review-destination strong {
+  flex: none;
+  font-weight: 600;
+}
+
+.review-destination span {
+  min-width: 0;
+  color: #57606a;
+}
+
+.review-destination .review-path {
+  /* Wrapped rather than truncated. There is room in a modal, and every way of
+   * shortening a path hides the half somebody wanted: cut the front and the
+   * directory goes, cut the back and the filename goes. */
+  word-break: break-all;
+  font-family: 'SF Mono', Monaco, 'Cascadia Code', monospace;
+  font-size: 12px;
+}
+
+.review-destination {
+  align-items: flex-start;
+}
+
 /* How to comment
  *
  * Nothing on screen said that the column of line numbers was clickable, or
@@ -1447,4 +1494,345 @@ button:disabled {
   line-height: 1.4;
   color: #24292e;
   text-align: center;
+}
+
+/* How to review
+ *
+ * This was four paragraphs pinned above the diff. It said the right things and
+ * nobody read them, because a wall of prose is what a person skips when they
+ * are trying to get to the code. Showing the gesture takes less attention than
+ * describing it.
+ *
+ * The demos are CSS, not video. Four short clips would be a megabyte in a
+ * package that is currently 55KB, and would be soft on a retina screen; these
+ * are a couple of kilobytes, sharp at any density, and inherit the palette so
+ * they keep matching the app when it changes.
+ */
+.help-modal {
+  position: fixed;
+  top: 0;
+  left: 0;
+  width: 100%;
+  height: 100%;
+  z-index: 1100;
+  background: rgba(0, 0, 0, 0.5);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  padding: 32px 24px;
+}
+
+.help-card {
+  width: 100%;
+  max-width: 720px;
+  max-height: calc(100vh - 64px);
+  display: flex;
+  flex-direction: column;
+  background: white;
+  border-radius: 10px;
+  box-shadow: 0 14px 48px rgba(0, 0, 0, 0.28);
+  overflow: hidden;
+}
+
+.help-head {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  padding: 18px 22px;
+  border-bottom: 1px solid #e1e4e8;
+}
+
+.help-head h2 {
+  font-size: 17px;
+  font-weight: 600;
+  color: #24292e;
+}
+
+.help-steps {
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  gap: 20px;
+  padding: 22px;
+  overflow-y: auto;
+}
+
+.help-step h3 {
+  margin: 12px 0 4px;
+  font-size: 13.5px;
+  font-weight: 600;
+  color: #24292e;
+}
+
+.help-step h3 kbd,
+.help-keys kbd {
+  display: inline-block;
+  min-width: 17px;
+  padding: 0 5px;
+  border: 1px solid #d1d5da;
+  border-bottom-width: 2px;
+  border-radius: 4px;
+  background: #fafbfc;
+  font-family: inherit;
+  font-size: 11px;
+  color: #24292e;
+  text-align: center;
+}
+
+.help-step p {
+  font-size: 12.5px;
+  line-height: 1.55;
+  color: #57606a;
+}
+
+.help-step code {
+  padding: 1px 5px;
+  border-radius: 4px;
+  background: #f0f2f4;
+  font-family: 'SF Mono', Monaco, monospace;
+  font-size: 11.5px;
+  color: #24292e;
+  white-space: nowrap;
+}
+
+/* The demo stage. Every mock below is built from these few pieces. */
+.help-demo {
+  position: relative;
+  height: 104px;
+  padding: 10px;
+  border: 1px solid #e1e4e8;
+  border-radius: 8px;
+  background: #fbfcfd;
+  overflow: hidden;
+}
+
+.m-row {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  height: 16px;
+}
+
+.m-num {
+  width: 16px;
+  border-radius: 3px;
+  font-family: 'SF Mono', Monaco, monospace;
+  font-size: 9px;
+  color: #a0a6ad;
+  text-align: right;
+}
+
+.m-code {
+  height: 5px;
+  width: 62%;
+  border-radius: 3px;
+  background: #dfe3e8;
+}
+
+.m-row:nth-child(2) .m-code { width: 78%; }
+.m-row:nth-child(3) .m-code { width: 48%; }
+
+/* A pointer. One element, moved by each demo's own keyframes. */
+.m-cursor {
+  position: absolute;
+  width: 9px;
+  height: 13px;
+  background: #24292e;
+  clip-path: polygon(0 0, 0 100%, 27% 74%, 46% 96%, 62% 84%, 44% 62%, 100% 58%);
+}
+
+/* 1. Click a line number */
+.demo-click .m-target .m-num { background: transparent; color: #0366d6; }
+.demo-click .m-box {
+  position: absolute;
+  left: 34px;
+  top: 46px;
+  width: 60%;
+  height: 26px;
+  border: 1px solid #0366d6;
+  border-radius: 4px;
+  background: white;
+  opacity: 0;
+  transform: translateY(-3px);
+  animation: m-box-in 4s ease-in-out infinite;
+}
+.demo-click .m-target .m-num { animation: m-num-hit 4s ease-in-out infinite; }
+.demo-click .m-cursor { animation: m-click-path 4s ease-in-out infinite; }
+
+@keyframes m-click-path {
+  0%, 8%    { left: 64px; top: 74px; opacity: 0; }
+  18%       { left: 64px; top: 74px; opacity: 1; }
+  38%, 100% { left: 14px; top: 26px; opacity: 1; }
+}
+@keyframes m-num-hit {
+  0%, 38%   { background: transparent; color: #0366d6; }
+  44%, 100% { background: #0366d6; color: white; }
+}
+@keyframes m-box-in {
+  0%, 46%   { opacity: 0; transform: translateY(-3px); }
+  56%, 100% { opacity: 1; transform: translateY(0); }
+}
+
+/* 2. Hold Cmd and drag to quote */
+.demo-select .m-long { position: relative; width: 78%; background: #dfe3e8; }
+.demo-select .m-sel {
+  position: absolute;
+  left: 18%;
+  top: -3px;
+  height: 11px;
+  width: 0;
+  border-radius: 2px;
+  background: rgba(3, 102, 214, 0.28);
+  animation: m-sweep 4s ease-in-out infinite;
+}
+.demo-select .m-quote {
+  position: absolute;
+  left: 34px;
+  top: 44px;
+  width: 52%;
+  height: 22px;
+  border-left: 3px solid #0366d6;
+  border-radius: 3px;
+  background: #eef4fb;
+  opacity: 0;
+  animation: m-quote-in 4s ease-in-out infinite;
+}
+.demo-select .m-cursor { animation: m-drag-path 4s ease-in-out infinite; }
+
+@keyframes m-sweep {
+  0%, 14%   { width: 0; }
+  46%, 100% { width: 46%; }
+}
+@keyframes m-drag-path {
+  0%, 14%   { left: 42px; top: 12px; opacity: 1; }
+  46%       { left: 106px; top: 12px; opacity: 1; }
+  62%       { left: 22px; top: 22px; opacity: 1; }
+  100%      { left: 22px; top: 22px; opacity: 1; }
+}
+@keyframes m-quote-in {
+  0%, 64%   { opacity: 0; }
+  74%, 100% { opacity: 1; }
+}
+
+/* 3. Replies thread */
+.demo-thread .m-comment,
+.demo-thread .m-reply {
+  position: absolute;
+  border-radius: 5px;
+  background: #fff8dc;
+  border: 1px solid #f0e0a0;
+}
+.demo-thread .m-comment { left: 12px; top: 16px; width: 72%; height: 28px; }
+.demo-thread .m-reply {
+  left: 34px;
+  top: 52px;
+  width: 58%;
+  height: 24px;
+  background: white;
+  border-color: #e1e4e8;
+  opacity: 0;
+  transform: translateX(-6px);
+  animation: m-reply-in 3.6s ease-in-out infinite;
+}
+
+@keyframes m-reply-in {
+  0%, 30%   { opacity: 0; transform: translateX(-6px); }
+  45%, 100% { opacity: 1; transform: translateX(0); }
+}
+
+/* 4. Submit, and it goes back */
+.demo-handoff { background: #24292e; border-color: #24292e; }
+.demo-handoff .m-term {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  font-family: 'SF Mono', Monaco, monospace;
+  font-size: 9px;
+}
+.demo-handoff .m-prompt { color: #56d364; }
+.demo-handoff .m-cmd {
+  height: 5px;
+  width: 0;
+  border-radius: 3px;
+  background: #6e7781;
+  animation: m-type 4s steps(14) infinite;
+}
+.demo-handoff .m-flow {
+  position: absolute;
+  left: 14px;
+  top: 44px;
+  width: 6px;
+  height: 6px;
+  border-radius: 50%;
+  background: #0366d6;
+  animation: m-flow 4s ease-in-out infinite;
+}
+.demo-handoff .m-done {
+  position: absolute;
+  right: 14px;
+  top: 38px;
+  color: #56d364;
+  font-size: 15px;
+  opacity: 0;
+  animation: m-done-in 4s ease-in-out infinite;
+}
+
+@keyframes m-type {
+  0%        { width: 0; }
+  30%, 100% { width: 74%; }
+}
+@keyframes m-flow {
+  0%, 36%  { left: 14px; opacity: 0; }
+  44%      { left: 14px; opacity: 1; }
+  76%      { left: 78%;  opacity: 1; }
+  84%, 100%{ left: 78%;  opacity: 0; }
+}
+@keyframes m-done-in {
+  0%, 78%   { opacity: 0; }
+  88%, 100% { opacity: 1; }
+}
+
+/* Someone who has asked not to see motion should not be shown four looping
+ * animations. The mocks still read as diagrams standing still. */
+@media (prefers-reduced-motion: reduce) {
+  .help-demo * { animation: none !important; }
+  .demo-click .m-box,
+  .demo-select .m-quote,
+  .demo-thread .m-reply,
+  .demo-handoff .m-done { opacity: 1; transform: none; }
+  .demo-select .m-sel { width: 46%; }
+  .demo-handoff .m-cmd { width: 74%; }
+}
+
+.help-foot {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 16px;
+  padding: 14px 22px;
+  border-top: 1px solid #e1e4e8;
+  background: #f6f8fa;
+}
+
+.help-keys {
+  font-size: 12px;
+  color: #57606a;
+}
+
+.help-done {
+  flex: none;
+  padding: 7px 18px;
+  border: none;
+  border-radius: 6px;
+  background: #0366d6;
+  color: white;
+  font: inherit;
+  font-size: 13px;
+  font-weight: 500;
+  cursor: pointer;
+}
+
+.help-done:hover { background: #0256b9; }
+
+@media (max-width: 640px) {
+  .help-steps { grid-template-columns: 1fr; }
 }

@@ -162,8 +162,10 @@ shown in full, read back out of `HEAD`:
 | `Escape` | Cancel input |
 | `↑` / `↓` | Move between files |
 
-None of that is guessable, so the review pane says it too, in a **How to
-comment** strip above the diff. Collapse it once and it stays collapsed.
+None of that is guessable — a column of line numbers does not look clickable —
+so the app shows you rather than telling you. **Reviewing, in four moves** opens
+by itself the first time you review anything, and lives behind the `?` in the
+header after that. Each move is a small animation of the gesture itself.
 
 ## What it writes
 
