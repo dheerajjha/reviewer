@@ -32,16 +32,18 @@ review was saved and keeps serving, because you may have more to read.
 Everything it says to you goes to stderr either way, so only the review is
 ever on stdout.
 
-![A terminal installing git-reviewer and running it inside a project; the browser opens on the diff with the first changed file already showing; two review comments are written inline, one with a threaded follow-up; then reviewer export prints those same comments back for a coding agent to act on](docs/demo.gif)
+![A terminal installing git-reviewer and running it inside a project; the browser opens on the diff; two review comments are written inline, one with a threaded follow-up; submitting hands the review back to the terminal, where Claude reads it, explains both fixes and names a tradeoff in its own approach, and git diff shows the three files it changed](docs/demo.gif)
 
-*The whole loop, unedited and in real time — [full resolution](docs/demo.mp4).*
+*One command, start to finish, unedited — [full resolution](docs/demo.mp4). Every
+frame is the real tool: the terminal output is captured from the run you are
+watching, and the code at the end is what the agent actually wrote.*
 
 Nothing is installed into the project, there is nothing to sign in to, and
 nothing leaves your machine. If you would rather not install it,
 `npx git-reviewer` works the same way.
 
-The recording above shows the two-step form, which still works and is the one
-to reach for when the review and the hand-off happen at different times:
+When the review and the hand-off happen at different times, the two-step form
+still works and is the one to reach for:
 
 ```bash
 reviewer                                            # read the diff, comment on it
