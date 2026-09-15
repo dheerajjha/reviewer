@@ -144,3 +144,32 @@ test('every value interpolated into an inline handler is coerced to a number', (
       'belong in the handler at all -- see the note above this test.'
   );
 });
+
+test('the per-file comment counts refresh where every mutation already converges', () => {
+  // The counts have to stay true as comments are added, edited and deleted.
+  // The cheap way to do that is to re-render the file list, and re-rendering
+  // the file list drops the selected row and the list's scroll position while
+  // somebody is in the middle of a review. So the badges are updated in place,
+  // and hooked into `updateCommentsSidebar` -- the one function every path
+  // that changes a comment already calls. Ten call sites, one hook.
+  const app = fs.readFileSync(APP_JS, 'utf-8');
+
+  const sidebar = app.match(/function updateCommentsSidebar\(\)[\s\S]*?\n}/);
+  assert.ok(sidebar, 'updateCommentsSidebar is no longer a top-level function');
+  assert.match(
+    sidebar[0],
+    /updateFileCommentCounts\(\)/,
+    'updateCommentsSidebar no longer refreshes the per-file counts, so they will ' +
+      'go stale the moment a comment is added, edited or deleted'
+  );
+
+  // And the refresh must not be a re-render in disguise.
+  const refresh = app.match(/function updateFileCommentCounts\(\)[\s\S]*?\n}/);
+  assert.ok(refresh, 'updateFileCommentCounts is missing');
+  assert.doesNotMatch(
+    refresh[0],
+    /innerHTML|displayFiles\(/,
+    'updateFileCommentCounts rebuilds the list instead of updating it in place, ' +
+      'which loses the selected row mid-review'
+  );
+});

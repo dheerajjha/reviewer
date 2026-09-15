@@ -1836,3 +1836,24 @@ button:disabled {
 @media (max-width: 640px) {
   .help-steps { grid-template-columns: 1fr; }
 }
+
+/* Comments per file
+ *
+ * In a review of any size the question you keep asking is which files you have
+ * already covered. The only answer on screen was a total in the sidebar
+ * header, so you found out by clicking through every file.
+ */
+.file-comment-count {
+  flex: none;
+  min-width: 18px;
+  margin-left: auto;
+  padding: 1px 6px;
+  border-radius: 20px;
+  background: #fff3cd;
+  border: 1px solid #f0e0a0;
+  font-size: 11px;
+  font-weight: 600;
+  line-height: 1.5;
+  color: #7a5d00;
+  text-align: center;
+}

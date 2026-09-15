@@ -6,6 +6,32 @@ adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
 ## [Unreleased]
 
+## [2.6.0] - 2026-09-15
+
+### Added
+
+- **The file list says which files you have commented on.**
+  ([#48](https://github.com/dheerajjha/reviewer/issues/48))
+
+  In a review of any size the question you keep asking is which files you have
+  already covered. The only answer on screen was a total in the sidebar header,
+  so you found out by clicking through every file.
+
+  Each row now carries a count. The badges are updated **in place** rather than
+  by re-rendering the list — re-rendering would be one line, and it would drop
+  the selected row and the file list's scroll position every time anyone typed
+  a comment. They are refreshed from `updateCommentsSidebar`, which every path
+  that changes a comment already calls, so ten call sites share one hook.
+
+### Fixed
+
+- **Nothing.** [#49](https://github.com/dheerajjha/reviewer/issues/49) claimed
+  that saving a comment threw away your scroll position. It does not, and the
+  issue is closed with the measurements: on a 264-row diff with 6103px of
+  scroll, saving, replying, editing and deleting all leave `scrollTop` and the
+  commented line's offset unchanged. It had been filed from a plausible reading
+  of the code without being run.
+
 ## [2.5.0] - 2026-09-14
 
 ### Changed
@@ -458,7 +484,8 @@ Initial release: Electron desktop app and web mode for reviewing local git
 changes with inline comments, threaded follow-ups, persistent storage, and a
 GitHub-style diff view.
 
-[Unreleased]: https://github.com/dheerajjha/reviewer/compare/v2.5.0...HEAD
+[Unreleased]: https://github.com/dheerajjha/reviewer/compare/v2.6.0...HEAD
+[2.6.0]: https://github.com/dheerajjha/reviewer/compare/v2.5.0...v2.6.0
 [2.5.0]: https://github.com/dheerajjha/reviewer/compare/v2.4.1...v2.5.0
 [2.4.1]: https://github.com/dheerajjha/reviewer/compare/v2.4.0...v2.4.1
 [2.4.0]: https://github.com/dheerajjha/reviewer/compare/v2.3.1...v2.4.0

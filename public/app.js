@@ -254,8 +254,12 @@ function displayFiles(files) {
     // before the handler is parsed, so an escaped quote is a quote again by
     // the time it matters. The row carries its position instead, and the name
     // is read back out of `currentFiles`, where it stays data.
+    // The count is filled in by `updateFileCommentCounts`, not here. Rendering
+    // it now would mean re-rendering this list on every comment to keep it
+    // true, and re-rendering the list is what loses the selected row.
     return `<div class="file-item" onclick="openFileAt(${Number(index)})" title="${escapeHtml(file)}">
       ${statusBadge}<span class="file-path-text">${displayText}</span>
+      <span class="file-comment-count" data-file-index="${Number(index)}" hidden></span>
     </div>`;
   }).join('');
 
@@ -1470,11 +1474,45 @@ function initResizeHandle() {
 let currentFileIndex = -1;
 
 // Update comments sidebar
+/**
+ * How many comments sit on each file, on the file rows themselves.
+ *
+ * In a review of any size the question you keep asking is which files you have
+ * already covered, and the only answer on screen was a total in the sidebar
+ * header — so you found out by clicking through every file (#48).
+ *
+ * Updated in place rather than by re-rendering the list. Re-rendering would be
+ * one line, and it would drop the selected row and the scroll position of the
+ * file list every time anyone typed a comment.
+ */
+function updateFileCommentCounts() {
+  const badges = document.querySelectorAll('.file-comment-count');
+  if (badges.length === 0) return;
+
+  const perFile = new Map();
+  for (const comment of comments) {
+    perFile.set(comment.file, (perFile.get(comment.file) ?? 0) + 1);
+  }
+
+  for (const badge of badges) {
+    const file = currentFiles[Number(badge.dataset.fileIndex)];
+    const count = file ? perFile.get(file.path) ?? 0 : 0;
+
+    badge.textContent = count;
+    badge.title = `${count} comment${count === 1 ? '' : 's'} on this file`;
+    badge.hidden = count === 0;
+  }
+}
+
 function updateCommentsSidebar() {
   const sidebar = document.getElementById('commentsSidebar');
   const commentsList = document.getElementById('commentsList');
   const commentsCount = document.getElementById('commentsCount');
   const commentsResizeHandle = document.getElementById('commentsResizeHandle');
+
+  // Every path that changes a comment already calls this, so the per-file
+  // counts ride along rather than needing ten more call sites of their own.
+  updateFileCommentCounts();
 
   commentsCount.textContent = comments.length;
 
