@@ -93,7 +93,8 @@ test('collectCommitChanges resolves renamed files with status R', () => {
       { file: 'src/deep/{old.js => new.js}', insertions: 2, deletions: 1 },
       { file: '{src => dest}/other.js', insertions: 10, deletions: 0 },
       { file: 'dir/{sub => }/file.txt', insertions: 0, deletions: 0 },
-      { file: 'dir/{ => nested}/file.txt', insertions: 0, deletions: 0 }
+      { file: 'dir/{ => nested}/file.txt', insertions: 0, deletions: 0 },
+      { file: '{sub => }/file.txt', insertions: 0, deletions: 0 }
     ]
   });
 
@@ -102,7 +103,8 @@ test('collectCommitChanges resolves renamed files with status R', () => {
     { path: 'src/deep/new.js', status: 'R' },
     { path: 'dest/other.js', status: 'R' },
     { path: 'dir/file.txt', status: 'R' },
-    { path: 'dir/nested/file.txt', status: 'R' }
+    { path: 'dir/nested/file.txt', status: 'R' },
+    { path: 'file.txt', status: 'R' }
   ]);
 });
 
@@ -110,13 +112,15 @@ test('collectCommitChanges unquotes git octal-escaped non-ASCII filenames', () =
   const changes = collectCommitChanges({
     files: [
       { file: '"unicode-caf\\303\\251-\\346\\227\\245\\346\\234\\254.txt"', insertions: 3, deletions: 1 },
-      { file: '"caf\\303\\251-old.txt" => "caf\\303\\251-new.txt"', insertions: 0, deletions: 0 }
+      { file: '"caf\\303\\251-old.txt" => "caf\\303\\251-new.txt"', insertions: 0, deletions: 0 },
+      { file: '"old.txt" => "🚀.txt"', insertions: 0, deletions: 0 }
     ]
   });
 
   assert.deepEqual(changes, [
     { path: 'unicode-café-日本.txt', status: 'M' },
-    { path: 'café-new.txt', status: 'R' }
+    { path: 'café-new.txt', status: 'R' },
+    { path: '🚀.txt', status: 'R' }
   ]);
 });
 
@@ -131,6 +135,8 @@ test('unquoteGitPath decodes git octal and escape sequences', () => {
   assert.equal(unquoteGitPath('"unicode-caf\\303\\251-\\346\\227\\245\\346\\234\\254.txt"'), 'unicode-café-日本.txt');
   assert.equal(unquoteGitPath('"quote\\"and\\\\slash.txt"'), 'quote"and\\slash.txt');
   assert.equal(unquoteGitPath('"tab\\tnewline\\n.txt"'), 'tab\tnewline\n.txt');
+  assert.equal(unquoteGitPath('"hello 🚀 world.txt"'), 'hello 🚀 world.txt');
+  assert.equal(unquoteGitPath('"file \\"quoted\\" 🚀 test.txt"'), 'file "quoted" 🚀 test.txt');
   assert.equal(unquoteGitPath(null), null);
   assert.equal(unquoteGitPath(undefined), undefined);
 });
@@ -140,4 +146,6 @@ test('parseCommitFilePath parses rename and non-rename patterns', () => {
   assert.deepEqual(parseCommitFilePath('old => new'), { isRename: true, path: 'new' });
   assert.deepEqual(parseCommitFilePath('src/{old => new}.js'), { isRename: true, path: 'src/new.js' });
   assert.deepEqual(parseCommitFilePath('"{old\\303\\251 => new\\303\\251}.txt"'), { isRename: true, path: 'newé.txt' });
+  assert.deepEqual(parseCommitFilePath('{sub => }/file.txt'), { isRename: true, path: 'file.txt' });
+  assert.deepEqual(parseCommitFilePath('{ => dir}/file.txt'), { isRename: true, path: 'dir/file.txt' });
 });

@@ -744,6 +744,55 @@ test('a non-ASCII filename in lastCommit mode is unquoted and diffable', async t
   assert.ok(fileData.diffLines.length > 0, 'diffLines should not be empty');
 });
 
+test('a renamed file moved from subdirectory to repo root in lastCommit mode is diffable', async t => {
+  const server = await startTestServer();
+  const repoPath = await createTempRepo();
+  t.after(async () => {
+    await server.close();
+    await cleanup(repoPath);
+  });
+
+  const lines = 'line1\nline2\nline3\nline4\nline5\nline6\nline7\nline8\n';
+  await commitFiles(repoPath, { 'nested/root-dest.txt': lines }, 'initial');
+  await git(repoPath, ['mv', 'nested/root-dest.txt', 'root-dest.txt']);
+  await writeFiles(repoPath, { 'root-dest.txt': 'line1\nline2 edited\nline3\nline4\nline5\nline6\nline7\nline8\n' });
+  await git(repoPath, ['add', '-A']);
+  await git(repoPath, ['commit', '-m', 'moved to root']);
+
+  const body = await loadRepo(server.url, repoPath);
+  assert.equal(body.mode, 'lastCommit');
+  assert.ok(body.files.some(file => file.path === 'root-dest.txt' && file.status === 'R'), `got ${JSON.stringify(body.files)}`);
+
+  const res = await fetch(`${server.url}/api/file/${body.repoId}/root-dest.txt`);
+  assert.equal(res.status, 200);
+  const fileData = await res.json();
+  assert.ok(fileData.diffLines.length > 0, 'diffLines should not be empty');
+});
+
+test('an emoji filename in lastCommit mode is unquoted without corruption and diffable', async t => {
+  const server = await startTestServer();
+  const repoPath = await createTempRepo();
+  t.after(async () => {
+    await server.close();
+    await cleanup(repoPath);
+  });
+
+  const emojiFile = 'feature-🚀-rocket.txt';
+  await commitFiles(repoPath, { [emojiFile]: 'line 1\nline 2\n' }, 'initial');
+  await writeFiles(repoPath, { [emojiFile]: 'line 1\nline 2 modified\n' });
+  await git(repoPath, ['add', '-A']);
+  await git(repoPath, ['commit', '-m', 'emoji commit']);
+
+  const body = await loadRepo(server.url, repoPath);
+  assert.equal(body.mode, 'lastCommit');
+  assert.ok(body.files.some(file => file.path === emojiFile && file.status === 'M'), `got ${JSON.stringify(body.files)}`);
+
+  const res = await fetch(`${server.url}/api/file/${body.repoId}/${encodeURIComponent(emojiFile)}`);
+  assert.equal(res.status, 200);
+  const fileData = await res.json();
+  assert.ok(fileData.diffLines.length > 0, 'diffLines should not be empty');
+});
+
 test('a repository with no commits at all loads without error', async t => {
   const server = await startTestServer();
   const repoPath = await createTempRepo();
