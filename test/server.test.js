@@ -696,6 +696,54 @@ test('a renamed file is listed under its new path', async t => {
   assert.ok(body.files.some(file => file.path === 'new.js'), `got ${JSON.stringify(body.files)}`);
 });
 
+test('a renamed file in lastCommit mode is listed under its new path with status R and diffable', async t => {
+  const server = await startTestServer();
+  const repoPath = await createTempRepo();
+  t.after(async () => {
+    await server.close();
+    await cleanup(repoPath);
+  });
+
+  await commitFiles(repoPath, { 'old.js': 'line1\nline2\nline3\nline4\nline5\nline6\nline7\nline8\n' }, 'initial');
+  await git(repoPath, ['mv', 'old.js', 'new.js']);
+  await writeFiles(repoPath, { 'new.js': 'line1\nline2 CHANGED\nline3\nline4\nline5\nline6\nline7\nline8\n' });
+  await git(repoPath, ['add', '-A']);
+  await git(repoPath, ['commit', '-m', 'renamed and edited']);
+
+  const body = await loadRepo(server.url, repoPath);
+  assert.equal(body.mode, 'lastCommit');
+  assert.ok(body.files.some(file => file.path === 'new.js' && file.status === 'R'), `got ${JSON.stringify(body.files)}`);
+
+  const res = await fetch(`${server.url}/api/file/${body.repoId}/new.js`);
+  assert.equal(res.status, 200);
+  const fileData = await res.json();
+  assert.ok(fileData.diffLines.length > 0, 'diffLines should not be empty');
+});
+
+test('a non-ASCII filename in lastCommit mode is unquoted and diffable', async t => {
+  const server = await startTestServer();
+  const repoPath = await createTempRepo();
+  t.after(async () => {
+    await server.close();
+    await cleanup(repoPath);
+  });
+
+  const unicodeFile = 'unicode-café-日本.txt';
+  await commitFiles(repoPath, { [unicodeFile]: 'initial content\n' }, 'initial');
+  await writeFiles(repoPath, { [unicodeFile]: 'updated content\n' });
+  await git(repoPath, ['add', '-A']);
+  await git(repoPath, ['commit', '-m', 'second commit']);
+
+  const body = await loadRepo(server.url, repoPath);
+  assert.equal(body.mode, 'lastCommit');
+  assert.ok(body.files.some(file => file.path === unicodeFile && file.status === 'M'), `got ${JSON.stringify(body.files)}`);
+
+  const res = await fetch(`${server.url}/api/file/${body.repoId}/${encodeURIComponent(unicodeFile)}`);
+  assert.equal(res.status, 200);
+  const fileData = await res.json();
+  assert.ok(fileData.diffLines.length > 0, 'diffLines should not be empty');
+});
+
 test('a repository with no commits at all loads without error', async t => {
   const server = await startTestServer();
   const repoPath = await createTempRepo();
