@@ -441,6 +441,11 @@ button:disabled {
   background: rgba(0, 0, 0, 0.03);
 }
 
+.line:focus, .unmatched-comment-item:focus {
+  outline: 2px solid #0366d6;
+  outline-offset: -2px;
+}
+
 /* Diff-specific styling */
 .diff-add {
   background: #e6ffed;

@@ -6,6 +6,15 @@ adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
 ## [Unreleased]
 
+### Added
+
+- **Keyboard navigation for reviews.**
+  - `j` / `k` to move to the next / previous file.
+  - `n` / `p` to move to the next / previous comment in the current file.
+  - `c` to open a comment input on the focused line.
+  - `?` to open the help modal.
+  - `Esc` closes whichever modal is open without breaking comment boxes.
+
 ## [2.7.0] - 2026-09-17
 
 ### Fixed

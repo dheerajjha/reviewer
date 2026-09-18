@@ -426,7 +426,7 @@ function displayCode(filePath, diffLines, binary) {
     const newLineClick = diffLine.type !== 'delete' ? `onclick="toggleCommentInput(${Number(diffLineIndex)})"` : '';
 
     html += `
-      <div class="${lineClass}" data-diff-index="${diffLineIndex}">
+      <div class="${lineClass}" tabindex="0" data-diff-index="${diffLineIndex}">
         ${hasComment ? '<span class="comment-indicator"></span>' : ''}
         <div class="line-numbers">
           <span class="old-line-number" ${oldLineClick}>${diffLine.oldLine || ''}</span>
@@ -506,7 +506,7 @@ function displayCode(filePath, diffLines, binary) {
       // rendered from. The row's random id went with it: the position is the
       // identifier now.
       html += `
-        <div class="unmatched-comment-item collapsed">
+        <div class="unmatched-comment-item collapsed" tabindex="0">
           <div class="unmatched-comment-header" onclick="toggleUnmatchedComment(${Number(unmatchedIndex)})">
             <span class="unmatched-comment-icon">⚠️</span>
             <span class="unmatched-comment-title">Comment not found (Line ${comment.line} changed)</span>
@@ -1357,7 +1357,7 @@ function displayFullContext(filePath, lines) {
     const dataDiffIndexAttr = diffLineIndex !== undefined ? `data-diff-index="${diffLineIndex}"` : '';
 
     html += `
-      <div class="${lineClass}" ${dataDiffIndexAttr}>
+      <div class="${lineClass}" tabindex="0" ${dataDiffIndexAttr}>
         ${hasComment ? '<span class="comment-indicator"></span>' : ''}
         <div class="line-numbers">
           <span class="old-line-number">${diffLine.oldLine || ''}</span>
@@ -1636,6 +1636,76 @@ function navigateFiles(direction) {
   }
 }
 
+// Navigate to comments in current file
+function navigateComments(direction) {
+  const commentElements = Array.from(document.querySelectorAll('.line.commented, .unmatched-comment-item'));
+  if (commentElements.length === 0) return;
+
+  const active = document.activeElement;
+  const currentIndex = commentElements.findIndex(el => el === active || el.contains(active));
+
+  let newIndex = currentIndex;
+  if (currentIndex === -1) {
+    newIndex = direction === 'next' ? 0 : commentElements.length - 1;
+  } else {
+    // stop at boundaries, matching existing file navigation style
+    if (direction === 'next') {
+      newIndex = Math.min(currentIndex + 1, commentElements.length - 1);
+    } else {
+      newIndex = Math.max(currentIndex - 1, 0);
+    }
+  }
+
+  if (newIndex !== currentIndex && commentElements[newIndex]) {
+    const target = commentElements[newIndex];
+    target.focus();
+    target.scrollIntoView({ block: 'nearest' });
+  }
+}
+
+function handleCommentShortcut() {
+  const active = document.activeElement;
+  if (!active) return;
+  const line = active.closest('.line');
+  if (!line) return;
+  const diffIndex = parseInt(line.dataset.diffIndex, 10);
+  if (!isNaN(diffIndex)) {
+    toggleCommentInput(diffIndex);
+  }
+}
+
+/**
+ * Pure function mapping keyboard events to application actions.
+ * @param {string} key
+ * @param {string} targetTagName
+ * @param {{ctrl?: boolean, meta?: boolean, alt?: boolean}} [modifiers]
+ * @returns {string|null} Action to take, or null if ignored.
+ */
+function getKeyboardShortcut(key, targetTagName, modifiers = {}) {
+  if (modifiers.ctrl || modifiers.meta || modifiers.alt) return null;
+
+  // Escape means "never mind" everywhere — including inside inputs — so it
+  // must be checked before the typing guard.
+  if (key === 'Escape') return 'escape';
+
+  if (targetTagName === 'INPUT' || targetTagName === 'TEXTAREA') {
+    return null;
+  }
+
+  const map = {
+    'ArrowUp': 'prevFile',
+    'k': 'prevFile',
+    'ArrowDown': 'nextFile',
+    'j': 'nextFile',
+    'n': 'nextComment',
+    'p': 'prevComment',
+    'c': 'commentFocus',
+    '?': 'help'
+  };
+
+  return map[key] || null;
+}
+
 // Allow Enter key to load repo
 document.addEventListener('DOMContentLoaded', () => {
   document.getElementById('repoPath').addEventListener('keypress', (e) => {
@@ -1647,22 +1717,31 @@ document.addEventListener('DOMContentLoaded', () => {
   // Initialize resize handle
   initResizeHandle();
 
-  // Add keyboard navigation for files
+  // Add keyboard navigation
   document.addEventListener('keydown', (e) => {
-    // Only handle arrow keys when not in an input/textarea
-    if (e.target.tagName === 'INPUT' || e.target.tagName === 'TEXTAREA') {
-      return;
-    }
+    const action = getKeyboardShortcut(e.key, e.target.tagName, { ctrl: e.ctrlKey, meta: e.metaKey, alt: e.altKey });
+    if (!action || action === 'escape') return; // escape is handled separately
 
-    if (e.key === 'ArrowUp') {
+    if (action === 'prevFile') {
       e.preventDefault();
       navigateFiles('up');
-    } else if (e.key === 'ArrowDown') {
+    } else if (action === 'nextFile') {
       e.preventDefault();
       navigateFiles('down');
+    } else if (action === 'nextComment') {
+      e.preventDefault();
+      navigateComments('next');
+    } else if (action === 'prevComment') {
+      e.preventDefault();
+      navigateComments('prev');
+    } else if (action === 'commentFocus') {
+      e.preventDefault();
+      handleCommentShortcut();
+    } else if (action === 'help') {
+      e.preventDefault();
+      document.getElementById('helpButton').click();
     }
   });
-
   for (const id of ['recentList', 'browseList']) {
     const list = document.getElementById(id);
     list.addEventListener('click', onPickerActivate);
@@ -1672,13 +1751,22 @@ document.addEventListener('DOMContentLoaded', () => {
   // Escape, and a click on the dimmed area around it, both mean "never mind"
   // -- but only when there is a review behind the picker to go back to.
   document.addEventListener('keydown', event => {
-    if (event.key !== 'Escape') return;
+    if (getKeyboardShortcut(event.key, event.target.tagName, { ctrl: event.ctrlKey, meta: event.metaKey, alt: event.altKey }) !== 'escape') {
+      return;
+    }
 
     // Topmost first: the help sits over the picker, which sits over a review.
     if (!document.getElementById('helpModal').classList.contains('hidden')) {
       closeHelp();
       return;
     }
+
+    const reviewModal = document.querySelector('.review-modal');
+    if (reviewModal) {
+      reviewModal.remove();
+      return;
+    }
+
     closePicker();
   });
 
@@ -1817,8 +1905,8 @@ async function loadRecent() {
     .map(project => {
       const meta = project.exists
         ? [project.comments > 0 ? `${project.comments} comment${project.comments === 1 ? '' : 's'}` : '', timeAgo(project.openedAt)]
-            .filter(Boolean)
-            .join(' · ')
+          .filter(Boolean)
+          .join(' · ')
         : 'no longer there';
 
       return `
@@ -1971,4 +2059,10 @@ function closeHelp() {
 function offerHelpOnce() {
   if (helpWasSeen()) return;
   openHelp();
+}
+
+if (typeof module !== 'undefined' && module.exports) {
+  module.exports = {
+    getKeyboardShortcut
+  };
 }
