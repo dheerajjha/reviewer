@@ -6,14 +6,28 @@ adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
 ## [Unreleased]
 
+## [2.8.0] - 2026-09-18
+
 ### Added
 
 - **Keyboard navigation for reviews.**
+  ([#68](https://github.com/dheerajjha/reviewer/issues/68))
   - `j` / `k` to move to the next / previous file.
   - `n` / `p` to move to the next / previous comment in the current file.
   - `c` to open a comment input on the focused line.
   - `?` to open the help modal.
   - `Esc` closes whichever modal is open without breaking comment boxes.
+
+  Shortcuts do nothing while you are typing, and nothing while `ctrl`, `meta`
+  or `alt` is held — so `Ctrl+P` still prints and `Ctrl+J` still opens the
+  browser's downloads. `shift` is deliberately *not* in that list, because `?`
+  is `Shift` + `/` and blocking it would have silently removed the help
+  shortcut. `Esc` is resolved ahead of the typing guard, so it keeps dismissing
+  a modal from inside the picker's path box.
+
+  The key-to-action mapping is a pure function, which is what makes it testable
+  without a browser. Note that the wiring around it is not covered — see
+  [#9](https://github.com/dheerajjha/reviewer/issues/9).
 
 ## [2.7.0] - 2026-09-17
 
