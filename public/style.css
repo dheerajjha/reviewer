@@ -221,6 +221,21 @@ button:disabled {
   color: white;
 }
 
+.file-status-deleted {
+  background: #d73a49;
+  color: white;
+}
+
+.file-status-renamed {
+  background: #6f42c1;
+  color: white;
+}
+
+.file-status-binary {
+  background: #6a737d;
+  color: white;
+}
+
 .file-item:hover {
   background: #f3f4f6;
   border-left-color: #0366d6;
