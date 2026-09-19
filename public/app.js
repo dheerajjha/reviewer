@@ -222,6 +222,17 @@ async function loadRepo() {
 }
 
 // Display list of changed files
+function fileStatusClass(status) {
+  switch (status) {
+    case 'A': return 'file-status-added';
+    case 'D': return 'file-status-deleted';
+    case 'R': return 'file-status-renamed';
+    case 'B': return 'file-status-binary';
+    case 'M':
+    default: return 'file-status-modified';
+  }
+}
+
 function displayFiles(files) {
   const sidebar = document.getElementById('sidebar');
   const filesList = document.getElementById('filesList');
@@ -244,7 +255,7 @@ function displayFiles(files) {
     const displayText = path
       ? `${escapeHtml(path)}/<span class="filename">${escapeHtml(filename)}</span>`
       : `<span class="filename">${escapeHtml(filename)}</span>`;
-    const statusClass = status === 'A' ? 'file-status-added' : 'file-status-modified';
+    const statusClass = fileStatusClass(status);
     const statusBadge = `<span class="file-status ${statusClass}">${status}</span>`;
 
     // The row used to carry the file name itself, inside a string literal
