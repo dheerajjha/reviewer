@@ -6,10 +6,14 @@ adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
 ## [Unreleased]
 
+## [2.8.1] - 2026-09-19
+
 ### Fixed
 
 - Show distinct statuses for deleted, renamed, and binary files in the sidebar
-  ([#65](https://github.com/dheerajjha/reviewer/issues/65)).
+  ([#65](https://github.com/dheerajjha/reviewer/issues/65)). Deleted, renamed
+  and binary files were all painted as "modified", so a file that no longer
+  exists carried the same badge as an ordinary edit.
 
 ## [2.8.0] - 2026-09-18
 
@@ -536,7 +540,10 @@ Initial release: Electron desktop app and web mode for reviewing local git
 changes with inline comments, threaded follow-ups, persistent storage, and a
 GitHub-style diff view.
 
-[Unreleased]: https://github.com/dheerajjha/reviewer/compare/v2.6.0...HEAD
+[Unreleased]: https://github.com/dheerajjha/reviewer/compare/v2.8.1...HEAD
+[2.8.1]: https://github.com/dheerajjha/reviewer/compare/v2.8.0...v2.8.1
+[2.8.0]: https://github.com/dheerajjha/reviewer/compare/v2.7.0...v2.8.0
+[2.7.0]: https://github.com/dheerajjha/reviewer/compare/v2.6.0...v2.7.0
 [2.6.0]: https://github.com/dheerajjha/reviewer/compare/v2.5.0...v2.6.0
 [2.5.0]: https://github.com/dheerajjha/reviewer/compare/v2.4.1...v2.5.0
 [2.4.1]: https://github.com/dheerajjha/reviewer/compare/v2.4.0...v2.4.1
