@@ -144,8 +144,13 @@ If you do find a held run:
     gh run list --repo dheerajjha/reviewer --status action_required
 
 Two cautions on that list. A queued `action_required` run and a blocked
-contributor look identical until you check whether a PR is still attached —
-leftovers from superseded commits sit there looking like emergencies. And
+contributor look identical, and leftovers from superseded commits sit there
+looking like emergencies — but do **not** separate them by asking whether the
+run still has a PR attached. A run's `pull_requests` field is empty for every
+fork-originated run, so that test discards every real outside contributor.
+Run 35443947808 was PR #71's live blocked run and reported `pull_requests: []`.
+Compare the run's `head_sha` to the head SHAs of open PRs instead; it is a live
+block when it matches one and that SHA has no check-runs. And
 approving a run *executes a contributor's code on the owner's compute*, which
 for an agent acting on someone else's public repo is an outward-facing act.
 Surface it; approve it if you are the owner or the owner has cleared you.
