@@ -6,6 +6,11 @@ adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
 ## [Unreleased]
 
+### Fixed
+
+- Show distinct statuses for deleted, renamed, and binary files in the sidebar
+  ([#65](https://github.com/dheerajjha/reviewer/issues/65)).
+
 ## [2.8.0] - 2026-09-18
 
 ### Added
