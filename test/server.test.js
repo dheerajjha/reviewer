@@ -21,9 +21,9 @@ const { RECENTS_FILE } = require('../lib/recents');
  *
  * @returns {Promise<{url: string, reviewsDir: string, close: () => Promise<void>}>}
  */
-async function startTestServer() {
+async function startTestServer(options = {}) {
   const reviewsDir = await fs.mkdtemp(path.join(await fs.realpath(os.tmpdir()), 'reviewer-reviews-'));
-  const app = createApp({ reviewsDir });
+  const app = createApp({ reviewsDir, ...options });
 
   const server = await new Promise((resolve, reject) => {
     const listening = app.listen(0, '127.0.0.1', () => resolve(listening));
@@ -1190,4 +1190,136 @@ test('a handoff that throws does not fail the submit', async t => {
   assert.equal(response.status, 200);
   const written = await fs.readdir(reviewsDir);
   assert.equal(written.filter(name => name.endsWith('.txt')).length, 1);
+});
+
+// --- #73: the server notices when the last tab has gone -------------------
+//
+// Driven by opening and aborting requests rather than by a browser. There is
+// no browser in CI, and a test that needs one to prove a five-second timer did
+// *not* fire is a test nobody runs. What the server actually decides on is the
+// lifetime of a connection, so that is what these drive.
+
+const GRACE = 60;
+
+/** Open `/api/alive` and return a handle that closes it the way a tab does. */
+async function openTab(url) {
+  const controller = new AbortController();
+  await fetch(`${url}/api/alive`, { signal: controller.signal });
+  return { close: () => controller.abort() };
+}
+
+/** Long enough for an abort to reach the server, or for GRACE to elapse. */
+const settle = (ms) => new Promise(resolve => setTimeout(resolve, ms));
+
+test('the last tab closing stops the server, after the grace period', async () => {
+  let idle = 0;
+  const server = await startTestServer({ onIdle: () => { idle += 1; }, idleGraceMs: GRACE });
+
+  try {
+    const tab = await openTab(server.url);
+    await settle(GRACE * 2);
+    assert.equal(idle, 0, 'a tab that is still open is not idle');
+
+    tab.close();
+    await settle(GRACE / 2);
+    assert.equal(idle, 0, 'nothing happens at the moment the tab goes');
+
+    await settle(GRACE * 3);
+    assert.equal(idle, 1);
+  } finally {
+    await server.close();
+  }
+});
+
+test('a reload does not stop the server', async () => {
+  // The whole reason the grace period exists. A refresh closes the connection
+  // and opens a new one milliseconds later, and at the instant of the close it
+  // is indistinguishable from someone leaving.
+  let idle = 0;
+  const server = await startTestServer({ onIdle: () => { idle += 1; }, idleGraceMs: GRACE });
+
+  try {
+    const first = await openTab(server.url);
+    first.close();
+    await settle(GRACE / 3);
+    const second = await openTab(server.url);
+
+    await settle(GRACE * 3);
+    assert.equal(idle, 0, 'the tab came back inside the window');
+
+    second.close();
+    await settle(GRACE * 3);
+    assert.equal(idle, 1, 'and stopping still works afterwards');
+  } finally {
+    await server.close();
+  }
+});
+
+test('closing one of two tabs leaves the other reviewing', async () => {
+  let idle = 0;
+  const server = await startTestServer({ onIdle: () => { idle += 1; }, idleGraceMs: GRACE });
+
+  try {
+    const first = await openTab(server.url);
+    const second = await openTab(server.url);
+
+    first.close();
+    await settle(GRACE * 3);
+    assert.equal(idle, 0, 'the second tab is still watching');
+
+    second.close();
+    await settle(GRACE * 3);
+    assert.equal(idle, 1);
+  } finally {
+    await server.close();
+  }
+});
+
+test('a server no browser ever opened keeps serving', async () => {
+  // `reviewer` whose browser failed to launch prints the URL and waits. Zero
+  // tabs is the state it starts in, not a signal that everyone has left.
+  let idle = 0;
+  const server = await startTestServer({ onIdle: () => { idle += 1; }, idleGraceMs: GRACE });
+
+  try {
+    await settle(GRACE * 4);
+    assert.equal(idle, 0);
+  } finally {
+    await server.close();
+  }
+});
+
+test('without an onIdle there is nothing to tell, and nothing breaks', async () => {
+  // The piped form passes no onIdle on purpose: submitting is what hands the
+  // review over there, and a closed tab is not a submitted review.
+  const server = await startTestServer({ idleGraceMs: GRACE });
+
+  try {
+    const tab = await openTab(server.url);
+    tab.close();
+    await settle(GRACE * 3);
+
+    const health = await fetch(`${server.url}/api/health`);
+    assert.equal(health.status, 200, 'still serving');
+  } finally {
+    await server.close();
+  }
+});
+
+test('another origin cannot hold the server open', async () => {
+  // Same reasoning as /api/browse and /api/recent: a page on another site
+  // holding this connection would keep a server alive its owner had finished
+  // with. Browsers omit Origin on same-origin GETs, so the real page is
+  // unaffected.
+  const server = await startTestServer({ onIdle: () => {}, idleGraceMs: GRACE });
+
+  try {
+    const response = await fetch(`${server.url}/api/alive`, {
+      headers: { Origin: 'http://evil.example' }
+    });
+    assert.equal(response.status, 403);
+    await response.json();
+  } finally {
+    await server.close();
+  }
 });

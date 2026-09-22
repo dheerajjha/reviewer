@@ -1718,7 +1718,31 @@ function getKeyboardShortcut(key, targetTagName, modifiers = {}) {
 }
 
 // Allow Enter key to load repo
+/**
+ * Tell the server this tab exists, by holding a connection open for as long
+ * as it does.
+ *
+ * There is nothing to read from this stream. The point is the socket: the
+ * browser closes it when the tab closes, which is the only notification of a
+ * closed tab that arrives whether you quit the browser, kill the window or
+ * lose the machine. `beforeunload` does not fire for all of those.
+ *
+ * EventSource reconnects on its own after a drop, which is what makes the
+ * server's grace period work -- a flaky connection comes back inside it and
+ * nothing is stopped.
+ */
+function watchFromThisTab() {
+  try {
+    new EventSource(`${API_BASE}/alive`);
+  } catch {
+    // Older browsers, or a page opened from a file:// URL. Losing this costs
+    // an automatic exit, not a review, so there is nothing to report.
+  }
+}
+
 document.addEventListener('DOMContentLoaded', () => {
+  watchFromThisTab();
+
   document.getElementById('repoPath').addEventListener('keypress', (e) => {
     if (e.key === 'Enter') {
       loadRepo();

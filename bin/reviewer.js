@@ -226,9 +226,25 @@ async function main() {
     stop();
   };
 
+  /**
+   * The last tab closed and did not come back.
+   *
+   * Only on a terminal. In the piped form, submitting is what hands the
+   * review over, and a closed tab is not a submitted review -- wiring this to
+   * the handoff would send a half-written review to something that starts
+   * editing files, which is a worse outcome by a wide margin than the Ctrl+C
+   * this saves.
+   */
+  const onIdle = handingOff
+    ? null
+    : () => {
+      note('\n  Browser closed. Stopping.\n');
+      stop();
+    };
+
   const server = await listen(
     options.port ?? (Number(process.env.PORT) || DEFAULT_PORT),
-    { onReviewSubmitted, handoff: handingOff }
+    { onReviewSubmitted, handoff: handingOff, onIdle }
   );
   const url = buildUrl(`http://${DEFAULT_HOST}:${server.address().port}`, repoPath);
 
@@ -236,7 +252,7 @@ async function main() {
   if (repoPath) note(`  reviewing      ${repoPath}`);
   note(handingOff
     ? '\n  Submit the review in the browser and it will be written here.\n'
-    : '\n  Press Ctrl+C to stop.\n');
+    : '\n  Close the tab when you are done, or press Ctrl+C.\n');
 
   if (options.open && !(await openInBrowser(url))) {
     note('  Could not open a browser — open the URL above yourself.\n');

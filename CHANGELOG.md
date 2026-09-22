@@ -6,6 +6,21 @@ adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
 ## [Unreleased]
 
+### Added
+
+- **Closing the browser tab stops the server.** A review used to end by
+  switching back to the terminal and pressing Ctrl+C; now the page holds a
+  connection open for as long as it is there, and the last one closing stops
+  the server on its own ([#73](https://github.com/dheerajjha/reviewer/issues/73)).
+  A reload does not count, nor does closing one of two tabs, nor a server whose
+  browser never opened.
+
+  This applies to a terminal run only. In the piped form
+  (`reviewer | claude -p "…"`), submitting the review is still the only thing
+  that hands it over and ends the process — a closed tab is not a submitted
+  review, and sending a half-written one to an agent that starts editing files
+  is worse than an extra Ctrl+C.
+
 ## [2.8.1] - 2026-09-19
 
 ### Fixed
