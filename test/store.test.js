@@ -28,7 +28,7 @@ async function write(dir, name, data) {
 test('a repository with no saved review reads as empty', async () => {
   const dir = await reviewsDir();
 
-  assert.deepEqual(await readSavedComments(dir, '/work/api'), { comments: [], adopted: false });
+  assert.deepEqual(await readSavedComments(dir, '/work/api'), { comments: [], mode: null, adopted: false });
 });
 
 test('comments are read back for the repository that saved them', async () => {
@@ -75,7 +75,7 @@ test('an adopted review is read straight from the new name afterwards', async ()
   await readSavedComments(dir, '/work/api');
   const second = await readSavedComments(dir, '/work/api');
 
-  assert.deepEqual(second, { comments: [COMMENT], adopted: false });
+  assert.deepEqual(second, { comments: [COMMENT], mode: null, adopted: false });
 });
 
 test('a legacy review belonging to another checkout is not adopted', async () => {

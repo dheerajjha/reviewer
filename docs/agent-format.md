@@ -78,7 +78,7 @@ Markdown that has to be parsed back out of prose.
 | `repository.name` | Directory name, sanitized for use in filenames. |
 | `repository.head` | The commit the working tree was on **when this document was produced** — not when the review was written. `null` if git would not say. See the note below before using it to detect staleness. |
 | `repository.branch` | Branch name, or `null`. |
-| `mode` | `working` (working tree vs `HEAD`), `lastCommit` (`HEAD` vs its parent), or `null` when exported outside a session. |
+| `mode` | `working` (working tree vs `HEAD`), `lastCommit` (`HEAD` vs its parent), or `null` for a review saved before the mode was recorded. It is stored with the review, so `reviewer export` reports the same value the browser did &mdash; it no longer goes `null` simply because there is no session. |
 | `summary` | `comments` and `files` counts. |
 | `comments[].id` | `<file>:<line>`, with `#2`, `#3`&hellip; appended where that is not unique &mdash; in a diff the removed line and the line that replaced it can share a number, and both can carry a comment. Unique within the document and stable across exports of the same review. |
 | `comments[].file` | Repo-relative path. |
@@ -101,6 +101,12 @@ files were first commented on, and ordered by line within a file.
   previously told you to make exactly that comparison; that advice was wrong.
   Tracked as [#32](https://github.com/dheerajjha/reviewer/issues/32), which has
   to change the stored format to fix.
+- **The prompt format states what was reviewed, and it is not always a
+  commit.** A `working` review is of changes that are *not* in
+  `repository.head`, so the briefing says so rather than naming the commit;
+  `lastCommit` names the commit and says it is against its parent. A review
+  with no recorded mode reports only where HEAD is, because nothing stored
+  says what was compared and guessing would be worse.
 - **The anchor is the mechanism that does work.** `comments[].anchor` is the
   exact source line the comment was left on, so a comment can still be located
   after the tree moves — including after your own first edit shifts every line

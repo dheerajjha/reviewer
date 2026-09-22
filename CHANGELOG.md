@@ -6,6 +6,19 @@ adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
 ## [Unreleased]
 
+### Fixed
+
+- **A working-tree review no longer claims to be a review of a commit.** The
+  agent briefing printed `Reviewed at commit: <sha>` for every review. In
+  `working` mode that is false rather than vague — the review is of changes
+  that are *not* in that commit. It now says what was actually compared, and a
+  single-commit review says it is against its parent.
+- **`reviewer export` remembers what was compared.** `mode` lived on the
+  server session, which the export path does not have, so every exported
+  review reported `mode: null` whatever it was a review of. It is stored with
+  the review now. Reviews saved before this change still read, and report
+  `null` rather than a guess.
+
 ## [2.9.0] - 2026-09-22
 
 ### Added

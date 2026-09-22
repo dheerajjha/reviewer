@@ -463,9 +463,15 @@ function createApp(options = {}) {
 
       await fs.mkdir(reviewsDir, { recursive: true });
 
+      // `mode` is on the envelope rather than on each comment: it describes
+      // the review, not any one remark in it, and it is what lets `reviewer
+      // export` say what was compared. Without it an exported review could
+      // only report where HEAD is, which says nothing about whether the
+      // comments are about committed work or uncommitted work.
       const data = {
         repoPath: session.repoPath,
         lastUpdated: new Date().toISOString(),
+        mode: session.mode,
         comments: normalized
       };
 
