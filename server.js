@@ -55,6 +55,11 @@ class FileNotFoundError extends Error {
  * @param {boolean} [options.handoff] whether the caller is going to do
  *   something with a submitted review. Reported to the page so it can say
  *   where the review went instead of only offering a download.
+ * @param {() => void} [options.onIdle] called once the last browser tab has
+ *   been gone for `idleGraceMs`, so the process that started the server can
+ *   stop. Omitted means never: a server with no one to tell keeps serving.
+ * @param {number} [options.idleGraceMs] how long to wait after the last tab
+ *   leaves before deciding it is not coming back.
  * @returns {import('express').Express}
  */
 function createApp(options = {}) {
@@ -63,7 +68,9 @@ function createApp(options = {}) {
     sessions = new SessionStore(),
     git: gitFactory = simpleGit,
     onReviewSubmitted = null,
-    handoff = false
+    handoff = false,
+    onIdle = null,
+    idleGraceMs = 5000
   } = options;
 
   const app = express();
@@ -74,6 +81,11 @@ function createApp(options = {}) {
 
   app.locals.sessions = sessions;
   app.locals.reviewsDir = reviewsDir;
+
+  // How many tabs are currently holding `/api/alive` open, and the timer that
+  // starts when that reaches zero. See the route for why it is a timer.
+  let watching = 0;
+  let idleTimer = null;
 
   /**
    * Look up the session for a request, or answer 400.
@@ -221,6 +233,59 @@ function createApp(options = {}) {
 
     next();
   }
+
+  /**
+   * Held open for as long as a tab is watching, so the server can tell when
+   * the last one has gone.
+   *
+   * The connection *is* the signal. An open page holds this response open and
+   * closing the page closes it, so there is no heartbeat interval to tune, and
+   * two tabs are two connections rather than one flag that either close
+   * clears. `sameOriginOnly` is here for the same reason it is on the two
+   * below: without it a page on another site could hold this open and keep a
+   * server alive that its owner had finished with.
+   *
+   * Nothing happens at the moment a watcher leaves. A reload closes and
+   * reopens within milliseconds, and a dropped connection reopens when
+   * EventSource retries -- at the instant it happens neither is
+   * distinguishable from someone closing the tab for good. So the last one
+   * leaving starts a timer and the next to arrive cancels it. Guessing wrong
+   * ends a review somebody is in the middle of, which is worth five seconds.
+   *
+   * A server nobody ever opened is not idle. `watching` only falls to zero
+   * after having been above it, so `reviewer` whose browser never launched
+   * keeps serving rather than exiting into an empty terminal.
+   */
+  app.get('/api/alive', sameOriginOnly, (req, res) => {
+    if (idleTimer) {
+      clearTimeout(idleTimer);
+      idleTimer = null;
+    }
+    watching += 1;
+
+    res.set({
+      'Content-Type': 'text/event-stream',
+      'Cache-Control': 'no-cache',
+      Connection: 'keep-alive'
+    });
+    // A comment frame, which EventSource ignores. Sending it now is what
+    // flushes the headers, so the client is connected rather than pending.
+    res.write(': watching\n\n');
+
+    res.on('close', () => {
+      watching -= 1;
+      if (watching > 0 || !onIdle) return;
+
+      idleTimer = setTimeout(() => {
+        idleTimer = null;
+        if (watching === 0) onIdle();
+      }, idleGraceMs);
+      // The listening socket is what holds the process open; this timer
+      // should not be able to on its own, or a closed server would sit
+      // waiting out the grace period before the process could exit.
+      idleTimer.unref();
+    });
+  });
 
   /** List the directories inside one, so a repository can be found by looking. */
   app.get('/api/browse', sameOriginOnly, async (req, res) => {
