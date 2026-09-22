@@ -10,6 +10,7 @@ const path = require('node:path');
 const { createApp } = require('../server');
 const { createTempRepo, createTempDir, writeFiles, commitFiles, cleanup, git } =
   require('./helpers/repo');
+const { commentsFilename } = require('../lib/review');
 const { RECENTS_FILE } = require('../lib/recents');
 
 /**
@@ -1322,4 +1323,35 @@ test('another origin cannot hold the server open', async () => {
   } finally {
     await server.close();
   }
+});
+
+test('saving comments records which mode the review was written in', async t => {
+  // The mode is what lets `reviewer export` say whether the comments are
+  // about committed or uncommitted work. It lives on the session, which the
+  // export path does not have, so it has to reach the file.
+  const server = await startTestServer();
+  const repoPath = await createTempRepo();
+  t.after(async () => {
+    await server.close();
+    await cleanup(repoPath);
+  });
+
+  await commitFiles(repoPath, { 'app.js': 'a\n' }, 'initial');
+  await writeFiles(repoPath, { 'app.js': 'b\n' });
+  const { repoId, mode } = await loadRepo(server.url, repoPath);
+  assert.equal(mode, 'working', 'a dirty tree opens in working mode');
+
+  await fetch(`${server.url}/api/save-comments`, {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({
+      repoId,
+      comments: [{ file: 'app.js', line: 1, lineContent: 'b', text: 'why' }]
+    })
+  });
+
+  const envelope = JSON.parse(
+    await fs.readFile(path.join(server.reviewsDir, commentsFilename(repoPath)), 'utf-8')
+  );
+  assert.equal(envelope.mode, 'working');
 });

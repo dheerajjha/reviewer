@@ -14,6 +14,7 @@ const {
 } = require('../lib/export');
 const { ReviewOwnershipError } = require('../lib/store');
 const { commentsFilename } = require('../lib/review');
+const { formatPrompt } = require('../lib/agent');
 const { createTempRepo, writeFiles, commitAll, cleanup } = require('./helpers/repo');
 
 const COMMENT = { file: 'src/auth.js', line: 1, text: 'needs a null check' };
@@ -29,10 +30,14 @@ async function reviewsDir() {
  * @param {string} repoPath
  * @param {object[]} comments
  */
-async function save(dir, repoPath, comments) {
+async function save(dir, repoPath, comments, mode) {
+  const envelope = mode === undefined
+    ? { repoPath, comments }
+    : { repoPath, mode, comments };
+
   await fs.writeFile(
     path.join(dir, commentsFilename(repoPath)),
-    JSON.stringify({ repoPath, comments })
+    JSON.stringify(envelope)
   );
 }
 
@@ -247,4 +252,42 @@ test('updatedAt is an ISO timestamp', async () => {
 
   assert.match(updatedAt, /^\d{4}-\d{2}-\d{2}T/);
   assert.equal(new Date(updatedAt).toISOString(), updatedAt);
+});
+
+// --- the exported document remembers what was compared -------------------
+
+test('an exported review carries the mode it was written in', async () => {
+  // This used to be impossible: `mode` lived on the session, which `reviewer
+  // export` does not have, so every exported review reported `mode: null` no
+  // matter what it was a review of. docs/agent-format.md documented that as a
+  // property of the format. It is now on the comments file instead.
+  const dir = await reviewsDir();
+  const repo = await createTempRepo();
+  await writeFiles(repo, { 'src/auth.js': 'let a\n' });
+  await commitAll(repo, 'init');
+  await save(dir, repo, [COMMENT], 'lastCommit');
+
+  const document = await loadReviewDocument(dir, repo);
+
+  assert.equal(document.mode, 'lastCommit');
+  assert.match(formatPrompt(document), /against its parent\./);
+
+  await cleanup(repo);
+  await cleanup(dir);
+});
+
+test('a review file written before the mode was recorded still exports', async () => {
+  const dir = await reviewsDir();
+  const repo = await createTempRepo();
+  await writeFiles(repo, { 'src/auth.js': 'let a\n' });
+  await commitAll(repo, 'init');
+  await save(dir, repo, [COMMENT]);
+
+  const document = await loadReviewDocument(dir, repo);
+
+  assert.equal(document.mode, null, 'nothing on disk says what was compared');
+  assert.doesNotMatch(formatPrompt(document), /working tree|against its parent/);
+
+  await cleanup(repo);
+  await cleanup(dir);
 });

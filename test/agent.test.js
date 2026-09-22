@@ -397,3 +397,57 @@ test('filtering to a file does not renumber the ids it keeps', () => {
   );
   assert.deepEqual(filtered.comments.map(comment => comment.id), ['b.js:2', 'b.js:2#2']);
 });
+
+// --- the briefing says what was reviewed, not just where HEAD is ----------
+
+/** A one-comment document in `mode`, for reading the briefing off. */
+function briefingFor(mode, { head = 'abc1234', branch = 'feature/x' } = {}) {
+  return formatPrompt(buildReviewDocument({
+    repoPath: '/work/api',
+    generatedAt: new Date('2026-09-22T00:00:00Z'),
+    head,
+    branch,
+    mode,
+    comments: [{ file: 'a.js', line: 1, lineContent: 'const x = 1;', text: 'why' }]
+  }));
+}
+
+test('a working-tree review does not claim to be a review of a commit', () => {
+  // The bug this replaces: both modes printed `Reviewed at commit: <sha>`. In
+  // working mode the review is of changes that are *not* in that commit, so
+  // the line was not vague, it was false.
+  const briefing = briefingFor('working');
+
+  assert.match(briefing, /uncommitted changes in the working tree/);
+  assert.match(briefing, /against feature\/x \(abc1234\)/);
+  assert.doesNotMatch(briefing, /Reviewed at commit/);
+});
+
+test('a single-commit review names the commit and what it is against', () => {
+  const briefing = briefingFor('lastCommit');
+
+  assert.match(briefing, /Reviewed: commit abc1234, against its parent\./);
+  assert.doesNotMatch(briefing, /working tree/);
+});
+
+test('a working-tree review on a detached HEAD still says what it reviewed', () => {
+  assert.match(briefingFor('working', { branch: null }), /against HEAD \(abc1234\)/);
+});
+
+test('a review with no recorded mode claims no more than it knows', () => {
+  // Written before the mode was stored. There is nothing on disk saying what
+  // was compared, so it reports where HEAD is and stops -- which is exactly
+  // what it did before, and the right answer when the alternative is a guess.
+  const briefing = briefingFor(null);
+
+  assert.match(briefing, /Reviewed at commit: abc1234/);
+  assert.doesNotMatch(briefing, /working tree/);
+  assert.doesNotMatch(briefing, /against its parent/);
+});
+
+test('with no commit at all the briefing omits the line rather than half-saying it', () => {
+  const briefing = briefingFor(null, { head: null });
+
+  assert.doesNotMatch(briefing, /Reviewed/);
+  assert.match(briefing, /Repository: \/work\/api/);
+});
