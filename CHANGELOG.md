@@ -6,6 +6,8 @@ adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
 ## [Unreleased]
 
+## [2.10.0] - 2026-09-23
+
 ### Added
 
 - **Review a range of commits, not just the last one.** A "Compare from" box
@@ -594,7 +596,8 @@ Initial release: Electron desktop app and web mode for reviewing local git
 changes with inline comments, threaded follow-ups, persistent storage, and a
 GitHub-style diff view.
 
-[Unreleased]: https://github.com/dheerajjha/reviewer/compare/v2.9.1...HEAD
+[Unreleased]: https://github.com/dheerajjha/reviewer/compare/v2.10.0...HEAD
+[2.10.0]: https://github.com/dheerajjha/reviewer/compare/v2.9.1...v2.10.0
 [2.9.1]: https://github.com/dheerajjha/reviewer/compare/v2.9.0...v2.9.1
 [2.9.0]: https://github.com/dheerajjha/reviewer/compare/v2.8.1...v2.9.0
 [2.8.1]: https://github.com/dheerajjha/reviewer/compare/v2.8.0...v2.8.1
