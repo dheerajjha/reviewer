@@ -1200,7 +1200,13 @@ test('a handoff that throws does not fail the submit', async t => {
 // *not* fire is a test nobody runs. What the server actually decides on is the
 // lifetime of a connection, so that is what these drive.
 
-const GRACE = 60;
+// Generous on purpose. These drive a real timer over real sockets, and a
+// loaded CI runner is entitled to be slow -- `a reload does not stop the
+// server` failed once on macOS at 60ms because a reconnect scheduled 20ms
+// into the window did not land until after it. The margins below are wide
+// enough that only a genuinely broken grace period can trip them, which is
+// the only thing they are meant to catch.
+const GRACE = 400;
 
 /** Open `/api/alive` and return a handle that closes it the way a tab does. */
 async function openTab(url) {
@@ -1242,7 +1248,9 @@ test('a reload does not stop the server', async () => {
   try {
     const first = await openTab(server.url);
     first.close();
-    await settle(GRACE / 3);
+    // Immediately, with no artificial gap. A browser reloading is not
+    // pausing politely first, and racing a hand-picked delay against the
+    // window is what made this flaky rather than what made it a test.
     const second = await openTab(server.url);
 
     await settle(GRACE * 3);
