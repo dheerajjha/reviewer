@@ -1208,11 +1208,26 @@ test('a handoff that throws does not fail the submit', async t => {
 // the only thing they are meant to catch.
 const GRACE = 400;
 
-/** Open `/api/alive` and return a handle that closes it the way a tab does. */
+/**
+ * Open `/api/alive` and return a handle that closes it the way a tab does.
+ *
+ * The handle holds the response and keeps a read pending on its body, and
+ * that is load-bearing. Node's fetch closes the socket of a response that is
+ * garbage-collected unconsumed -- which, from the server, is indistinguishable
+ * from the tab closing. This helper used to keep only the AbortController and
+ * drop the Response, so on a runner whose collector happened to run during
+ * the wait, a tab the test still considered open quietly closed itself. That
+ * failed "closing one of two tabs" and, before it, "a reload does not stop
+ * the server" -- the second of which was put down to a timing race in #83, and
+ * was not one. A browser's EventSource is held by its page; this is the test
+ * holding its equivalent.
+ */
 async function openTab(url) {
   const controller = new AbortController();
-  await fetch(`${url}/api/alive`, { signal: controller.signal });
-  return { close: () => controller.abort() };
+  const response = await fetch(`${url}/api/alive`, { signal: controller.signal });
+  const reader = response.body.getReader();
+  reader.read().catch(() => {});
+  return { close: () => controller.abort(), response, reader };
 }
 
 /** Long enough for an abort to reach the server, or for GRACE to elapse. */
