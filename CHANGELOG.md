@@ -6,6 +6,14 @@ adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
 ## [Unreleased]
 
+### Fixed
+
+- A lifecycle test raced a 20ms reconnect against a 60ms grace window and
+  failed once on a loaded macOS runner. The margins are wide now and the
+  reload test reconnects immediately rather than after a hand-picked delay —
+  a browser reloading does not pause politely first, so the delay was never
+  part of what the test was checking.
+
 ## [2.11.0] - 2026-09-23
 
 ### Added
