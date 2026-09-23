@@ -6,6 +6,8 @@ adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
 ## [Unreleased]
 
+## [2.11.0] - 2026-09-23
+
 ### Added
 
 - **Pick the commit to review back to, instead of typing a SHA.** The range
@@ -617,7 +619,8 @@ Initial release: Electron desktop app and web mode for reviewing local git
 changes with inline comments, threaded follow-ups, persistent storage, and a
 GitHub-style diff view.
 
-[Unreleased]: https://github.com/dheerajjha/reviewer/compare/v2.10.0...HEAD
+[Unreleased]: https://github.com/dheerajjha/reviewer/compare/v2.11.0...HEAD
+[2.11.0]: https://github.com/dheerajjha/reviewer/compare/v2.10.0...v2.11.0
 [2.10.0]: https://github.com/dheerajjha/reviewer/compare/v2.9.1...v2.10.0
 [2.9.1]: https://github.com/dheerajjha/reviewer/compare/v2.9.0...v2.9.1
 [2.9.0]: https://github.com/dheerajjha/reviewer/compare/v2.8.1...v2.9.0
