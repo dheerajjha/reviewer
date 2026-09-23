@@ -1878,89 +1878,197 @@ button:disabled {
   text-align: center;
 }
 
-/* What the review is of, and how to change it.
+/* ---------------------------------------------------------------------------
+ * What the review is of, and how to change it.
  *
- * Its own row under the status line rather than beside the repository
- * controls: choosing a repository and choosing which of its commits to look
- * at are two different decisions, and crowding them made the header read as
- * one long form. */
+ * Its own block under the status line rather than beside the repository
+ * controls: choosing a repository and choosing which two points of it to look
+ * between are different decisions, and crowding them into one row made the
+ * header read as one long form.
+ * ------------------------------------------------------------------------ */
+
 .scope-bar {
+  margin-top: 8px;
+  padding: 10px 12px;
+  border-radius: 6px;
+  background: #f6f8fa;
+  border: 1px solid #e1e4e8;
+  font-size: 13px;
+  color: #24292e;
+}
+
+.scope-summary {
   display: flex;
   align-items: center;
   justify-content: space-between;
   flex-wrap: wrap;
   gap: 8px 16px;
-  margin-top: 8px;
-  padding: 8px 12px;
-  border-radius: 6px;
-  background: #f3f4f6;
-  border-left: 3px solid #6a737d;
-  font-size: 13px;
 }
 
-/* The scope reads as a sentence rather than a field label, because the case
- * that matters most is "9 commits, and no net change" — which has to be
- * legible as an explanation, not as a value. */
-.scope-label {
-  color: #24292e;
+/* The scope reads as a sentence -- "main → feature/auth" -- rather than as a
+ * labelled field, because the names are the information. */
+.scope-text {
+  display: flex;
+  align-items: baseline;
+  flex-wrap: wrap;
+  gap: 4px 12px;
   min-width: 0;
 }
 
-.scope-compare {
+.scope-label {
+  font-size: 14px;
+  overflow-wrap: anywhere;
+}
+
+.scope-label strong {
+  font-family: ui-monospace, SFMono-Regular, Menlo, monospace;
+  font-size: 13px;
+  font-weight: 600;
+  padding: 1px 6px;
+  border-radius: 4px;
+  background: #fff;
+  border: 1px solid #d1d5da;
+}
+
+.scope-meta {
+  color: #586069;
+}
+
+.scope-actions {
   display: flex;
-  align-items: center;
   gap: 8px;
   flex-shrink: 0;
 }
 
-.scope-compare label {
-  color: #6a737d;
-  white-space: nowrap;
-}
-
-.scope-compare input {
-  width: 190px;
-  font-family: ui-monospace, SFMono-Regular, Menlo, monospace;
-  font-size: 12px;
-}
-
-.scope-reset {
-  background: transparent;
-  border: 1px solid #d1d5da;
+/* Secondary buttons. The :hover rule is not optional: `button:hover` sets the
+ * primary blue and outranks a single class on specificity, so a secondary
+ * button without its own hover rule turns into dark text on dark blue the
+ * moment the pointer reaches it. That shipped once, on "Back to latest". */
+.scope-action,
+.compare-swap {
+  background: #fff;
   color: #24292e;
+  border: 1px solid #d1d5da;
+  padding: 5px 12px;
+  font-size: 13px;
 }
 
-@media (max-width: 720px) {
-  .scope-compare input {
-    width: 120px;
-  }
+.scope-action:hover,
+.compare-swap:hover {
+  background: #f3f4f6;
+  border-color: #b8bec6;
 }
 
-/* The picker carries the common case; the text box beside it carries
- * everything else — a branch, a tag, `HEAD~5`, a sha from somewhere else.
- * Both stay visible rather than one hiding behind a mode, because a control
- * you cannot see is a feature people believe is missing. */
-.scope-compare select {
-  max-width: 320px;
-  font-size: 12px;
-  padding: 4px 6px;
+.scope-action:focus-visible,
+.compare-swap:focus-visible,
+.compare-end select:focus-visible,
+.compare-other:focus-visible {
+  outline: 2px solid #0366d6;
+  outline-offset: 1px;
+}
+
+.compare-row {
+  display: flex;
+  align-items: flex-end;
+  flex-wrap: wrap;
+  gap: 8px 10px;
+  margin-top: 10px;
+  padding-top: 10px;
+  border-top: 1px solid #e1e4e8;
+}
+
+.compare-end {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+  flex: 1 1 240px;
+  min-width: 0;
+}
+
+.compare-end label {
+  font-size: 11px;
+  font-weight: 600;
+  text-transform: uppercase;
+  letter-spacing: 0.04em;
+  color: #586069;
+}
+
+.compare-end select,
+.compare-other {
+  width: 100%;
+  min-width: 0;
+  font-size: 13px;
+  padding: 6px 8px;
   border: 1px solid #d1d5da;
   border-radius: 6px;
   background: #fff;
   color: #24292e;
 }
 
-.scope-compare select:disabled {
-  color: #6a737d;
-  background: #f3f4f6;
+.compare-other {
+  font-family: ui-monospace, SFMono-Regular, Menlo, monospace;
+  font-size: 12px;
 }
 
+.compare-swap {
+  flex: 0 0 auto;
+  font-size: 16px;
+  line-height: 1;
+  padding: 7px 10px;
+}
+
+/* Why the file list looks the way it does. Its own line, in the same quiet
+ * voice as the meta text: this is explanation, not a warning. An empty
+ * comparison is a real answer, and it must not be dressed as an error. */
+.scope-note {
+  margin: 10px 0 0;
+  color: #586069;
+  line-height: 1.45;
+}
+
+.files-empty {
+  padding: 16px 12px;
+  color: #586069;
+  font-size: 13px;
+  line-height: 1.45;
+}
+
+/* Narrow screens: the two ends stack, and the swap button sits between them
+ * rather than overflowing the bar -- which the single-row version did, at
+ * 760px, with the Compare button hanging off the right edge. */
 @media (max-width: 720px) {
-  .scope-compare {
-    flex-wrap: wrap;
+  .compare-row {
+    flex-direction: column;
+    align-items: stretch;
   }
 
-  .scope-compare select {
-    max-width: 100%;
+  .compare-end {
+    flex: 1 1 auto;
   }
+
+  .compare-swap {
+    align-self: center;
+    transform: rotate(90deg);
+  }
+
+  .scope-actions {
+    width: 100%;
+  }
+}
+
+/* A comment on a file that is not in the current comparison. Kept, not
+ * lost -- dimmed so it reads as "elsewhere", with a line saying so, because a
+ * sidebar entry that looks attached but goes nowhere when clicked reads as a
+ * bug. */
+.comment-item-elsewhere {
+  opacity: 0.72;
+}
+
+.comment-item-elsewhere-note {
+  margin-top: 6px;
+  font-size: 11px;
+  font-weight: 600;
+  text-transform: uppercase;
+  letter-spacing: 0.04em;
+  color: #6a737d;
 }

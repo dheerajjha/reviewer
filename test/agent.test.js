@@ -496,3 +496,40 @@ test('a document with no range omits the field rather than nulling it', () => {
 
   assert.equal('range' in working, false);
 });
+
+test('a diverged range tells the agent what was left out, and to leave it alone', () => {
+  // An agent that sees main's newer code differ from the branch has no way
+  // to know that difference was deliberately excluded. Told nothing, it may
+  // "fix" it -- and revert someone else's work.
+  const briefing = formatPrompt(buildReviewDocument({
+    repoPath: '/work/api',
+    generatedAt: new Date('2026-09-23T00:00:00Z'),
+    head: '4f2c0e1',
+    branch: 'feature/auth',
+    mode: 'range',
+    range: {
+      base: '3eb5795', head: '4f2c0e1', from: '7c9c142',
+      commits: 3, behind: 1, baseName: 'main', headName: 'feature/auth'
+    },
+    comments: [{ file: 'a.js', line: 1, lineContent: 'x', text: 'y' }]
+  }));
+
+  assert.match(briefing, /what feature\/auth changes since it diverged from main \(merge base 7c9c142, head 4f2c0e1\)/);
+  assert.match(briefing, /main has 1 newer commit that is deliberately not part of this review; leave that code alone\./);
+});
+
+test('a straight-line range names both ends without talking about divergence', () => {
+  const briefing = formatPrompt(buildReviewDocument({
+    repoPath: '/work/api',
+    generatedAt: new Date('2026-09-23T00:00:00Z'),
+    mode: 'range',
+    range: {
+      base: '7c9c142', head: '4f2c0e1', from: '7c9c142',
+      commits: 3, behind: 0, baseName: 'main', headName: 'feature/auth'
+    },
+    comments: [{ file: 'a.js', line: 1, lineContent: 'x', text: 'y' }]
+  }));
+
+  assert.match(briefing, /Reviewed: main → feature\/auth \(7c9c142\.\.4f2c0e1\), 3 commits/);
+  assert.doesNotMatch(briefing, /diverged|leave that code alone/);
+});

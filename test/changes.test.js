@@ -8,7 +8,8 @@ const {
   collectCommitChanges,
   classifyCommitFile,
   unquoteGitPath,
-  parseCommitFilePath
+  parseCommitFilePath,
+  parseNameStatus
 } = require('../lib/changes');
 
 test('collectWorkingChanges labels each bucket', () => {
@@ -148,4 +149,76 @@ test('parseCommitFilePath parses rename and non-rename patterns', () => {
   assert.deepEqual(parseCommitFilePath('"{old\\303\\251 => new\\303\\251}.txt"'), { isRename: true, path: 'newé.txt' });
   assert.deepEqual(parseCommitFilePath('{sub => }/file.txt'), { isRename: true, path: 'file.txt' });
   assert.deepEqual(parseCommitFilePath('{ => dir}/file.txt'), { isRename: true, path: 'dir/file.txt' });
+});
+
+
+// --- what git says happened to a file, not a guess from line counts --------
+
+test('parseNameStatus reads the plain statuses', () => {
+  const raw = 'M\0src/a.js\0A\0src/new.js\0D\0src/gone.js\0';
+  const statuses = parseNameStatus(raw);
+
+  assert.equal(statuses.get('src/a.js'), 'M');
+  assert.equal(statuses.get('src/new.js'), 'A');
+  assert.equal(statuses.get('src/gone.js'), 'D');
+});
+
+test('parseNameStatus keys a rename by where the file lives now', () => {
+  const statuses = parseNameStatus('R100\0old/name.js\0new/name.js\0M\0other.js\0');
+
+  assert.equal(statuses.get('new/name.js'), 'R');
+  assert.equal(statuses.has('old/name.js'), false, 'the old path is not a file in the review');
+  assert.equal(statuses.get('other.js'), 'M', 'and the field after a rename is not swallowed');
+});
+
+test('parseNameStatus treats a copy as an addition and a type change as a modification', () => {
+  const statuses = parseNameStatus('C75\0src/a.js\0src/b.js\0T\0bin/tool\0');
+
+  assert.equal(statuses.get('src/b.js'), 'A');
+  assert.equal(statuses.get('bin/tool'), 'M');
+});
+
+test('parseNameStatus takes non-ASCII paths as they are, with nothing to unquote', () => {
+  // With -z git neither quotes nor octal-escapes. Without it, this name
+  // arrives as "caf\303\251.js" -- which was #20 the first time.
+  assert.equal(parseNameStatus('M\0café.js\0').get('café.js'), 'M');
+});
+
+test('an edit that only adds lines is Modified, not Added', () => {
+  // The bug: the count-based guess called any insertion-only change "A",
+  // so a one-line addition to an existing file was badged as a new file.
+  const summary = { files: [{ file: 'src/auth.js', insertions: 1, deletions: 0, binary: false }] };
+
+  assert.deepEqual(collectCommitChanges(summary), [{ path: 'src/auth.js', status: 'A' }], 'what the guess says');
+  assert.deepEqual(
+    collectCommitChanges(summary, parseNameStatus('M\0src/auth.js\0')),
+    [{ path: 'src/auth.js', status: 'M' }],
+    'what git says'
+  );
+});
+
+test('an edit that only removes lines is Modified, not Deleted', () => {
+  // Worse than the other direction: a reviewer shown "D" is told the file
+  // is gone.
+  const summary = { files: [{ file: 'src/auth.js', insertions: 0, deletions: 1, binary: false }] };
+
+  assert.deepEqual(
+    collectCommitChanges(summary, parseNameStatus('M\0src/auth.js\0')),
+    [{ path: 'src/auth.js', status: 'M' }]
+  );
+});
+
+test('renames and binaries keep their own badges whatever name-status says', () => {
+  const summary = {
+    files: [
+      { file: 'src/{old.js => new.js}', insertions: 0, deletions: 0, binary: false },
+      { file: 'logo.png', before: 10, after: 12, binary: true }
+    ]
+  };
+  const statuses = parseNameStatus('R100\0src/old.js\0src/new.js\0M\0logo.png\0');
+
+  assert.deepEqual(collectCommitChanges(summary, statuses), [
+    { path: 'src/new.js', status: 'R' },
+    { path: 'logo.png', status: 'B' }
+  ]);
 });

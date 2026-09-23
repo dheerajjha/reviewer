@@ -53,28 +53,42 @@
         </button>
       </div>
     </div>
-    <div id="status" class="status"></div>
+    <div id="status" class="status hidden" role="status" aria-live="polite"></div>
 
-    <div id="scopeBar" class="scope-bar hidden">
-      <span id="scopeLabel" class="scope-label"></span>
-      <div class="scope-compare">
-        <!-- "since", not "from": `base..HEAD` does not include base's own
-             changes, and a picker that says "compare from x1" invites the
-             reading that x1 is in the diff. -->
-        <label for="compareSelect">Changes since</label>
-        <select id="compareSelect" onchange="compareFromSelection()" aria-label="Review everything after this commit">
-          <option value="">Pick a commit…</option>
-        </select>
-        <input
-          type="text"
-          id="compareBase"
-          placeholder="or a branch, tag or ref"
-          spellcheck="false"
-          autocomplete="off"
-          value="">
-        <button id="compareBtn" onclick="compareFrom()">Compare</button>
-        <button id="scopeResetBtn" class="scope-reset hidden" onclick="resetScope()">Back to latest</button>
+    <div id="scopeBar" class="scope-bar hidden" role="region" aria-label="What is being reviewed">
+      <div class="scope-summary">
+        <div class="scope-text">
+          <span id="scopeLabel" class="scope-label"></span>
+          <span id="scopeMeta" class="scope-meta"></span>
+        </div>
+        <div class="scope-actions">
+          <button id="compareToggle" class="scope-action" onclick="openCompare()">Compare branches</button>
+          <button id="scopeResetBtn" class="scope-action hidden" onclick="resetScope()">Stop comparing</button>
+        </div>
       </div>
+
+      <!-- GitHub's vocabulary, deliberately: "base" and "compare" are what
+           the people using this already call the two ends of a pull request. -->
+      <div id="compareRow" class="compare-row hidden">
+        <div class="compare-end">
+          <label for="compareBaseSelect">Base</label>
+          <select id="compareBaseSelect" onchange="onPickerChange('base')"></select>
+          <input id="compareBaseOther" class="compare-other hidden" type="text"
+            placeholder="tag, HEAD~5 or sha" spellcheck="false" autocomplete="off"
+            aria-label="Base ref">
+        </div>
+        <button id="compareSwap" class="compare-swap" onclick="swapCompare()"
+          title="Swap base and compare" aria-label="Swap base and compare">&#8644;</button>
+        <div class="compare-end">
+          <label for="compareHeadSelect">Compare</label>
+          <select id="compareHeadSelect" onchange="onPickerChange('head')"></select>
+          <input id="compareHeadOther" class="compare-other hidden" type="text"
+            placeholder="tag, HEAD~5 or sha" spellcheck="false" autocomplete="off"
+            aria-label="Compare ref">
+        </div>
+      </div>
+
+      <p id="scopeNote" class="scope-note hidden"></p>
     </div>
   </header>
 

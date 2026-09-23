@@ -137,122 +137,307 @@ function shortSha(sha) {
   return typeof sha === 'string' ? sha.slice(0, 8) : '';
 }
 
-/**
- * Say what the review is of, above the files.
- *
- * The empty-range case is the reason this exists. `git diff x3 x5` over work
- * that was added and then removed is correctly empty, and a file list showing
- * nothing is indistinguishable from a repository with nothing to review. The
- * commit count stays on screen so that an empty list reads as "9 commits, no
- * net change" rather than as "nothing happened".
- *
- * @param {{mode: string, range: ?{base: string, head: string, commits: number}}} data
- */
-function renderScope(data) {
-  const bar = document.getElementById('scopeBar');
-  const label = document.getElementById('scopeLabel');
-  const reset = document.getElementById('scopeResetBtn');
-
-  bar.classList.remove('hidden');
-  reset.classList.toggle('hidden', data.mode !== 'range');
-
-  const select = document.getElementById('compareSelect');
-
-  if (data.mode === 'range' && data.range) {
-    const { base, head, commits } = data.range;
-    label.textContent =
-      `Comparing ${shortSha(base)} \u2192 ${shortSha(head)} \u2014 ` +
-      `${commits} commit${commits === 1 ? '' : 's'}, shown as one combined diff`;
-    // Only if the base is one of the offered commits. A range opened by
-    // typing `HEAD~5` or a branch name has no matching option, and leaving
-    // the picker on its placeholder is honest -- the scope bar above already
-    // says exactly what is being compared.
-    select.value = [...select.options].some(option => option.value === base) ? base : '';
-    return;
-  }
-
-  label.textContent = data.mode === 'lastCommit'
-    ? 'Reviewing the last commit'
-    : 'Reviewing uncommitted changes';
-  select.value = '';
-  document.getElementById('compareBase').value = '';
+/** A full sha is shortened for display; a branch or tag name is left alone. */
+function displayRef(ref) {
+  return /^[0-9a-f]{40}$/i.test(ref ?? '') ? shortSha(ref) : (ref ?? '');
 }
 
-/**
- * Fill the commit picker for the open repository.
- *
- * The newest commit is deliberately not offered. "Changes since HEAD" is
- * either nothing or the working tree depending on how you squint, and both
- * of those are already what "Back to latest" gives you -- so listing it
- * would be offering a choice that cannot do anything useful.
- *
- * A failure here is silent on purpose: the text box next to it still works,
- * and a repository whose history will not list is not a reason to refuse to
- * review it.
- */
-async function loadCommitOptions(repoId) {
-  const select = document.getElementById('compareSelect');
+/** `n thing` or `n things`, instead of the `thing(s)` that reads like a form. */
+function plural(n, word) {
+  return `${n} ${word}${n === 1 ? '' : 's'}`;
+}
 
+// What the compare pickers can offer, from /api/refs. Refetched on every
+// load, because a comparison opens a new session and branches move.
+let currentRefs = null;
+
+// The "type something else" choice at the foot of either picker.
+const OTHER_REF = '__other__';
+
+const PICKERS = {
+  base: { select: 'compareBaseSelect', other: 'compareBaseOther' },
+  head: { select: 'compareHeadSelect', other: 'compareHeadOther' }
+};
+
+/**
+ * Fetch the branches, tags and commits the pickers offer, and fill both.
+ *
+ * A failure leaves both pickers with only "Other…" in them, which still
+ * works; a repository whose refs will not list is not a reason to refuse to
+ * compare it.
+ */
+async function loadRefs(repoId) {
   try {
-    const response = await fetch(`${API_BASE}/commits/${repoId}`);
-    if (!response.ok) return;
-
-    const { commits } = await response.json();
-    const options = commits.slice(1);
-
-    select.innerHTML = '';
-    if (options.length === 0) {
-      select.appendChild(new Option('No earlier commits', ''));
-      select.disabled = true;
-      return;
-    }
-
-    select.disabled = false;
-    select.appendChild(new Option('Pick a commit…', ''));
-    for (const commit of options) {
-      // The subject is what a person recognises; the sha is there to
-      // disambiguate two commits with the same message, which is common
-      // enough in a branch that has been rebased.
-      select.appendChild(new Option(`${commit.short} · ${commit.subject} · ${commit.when}`, commit.sha));
-    }
+    const response = await fetch(`${API_BASE}/refs/${repoId}`);
+    currentRefs = response.ok ? await response.json() : null;
   } catch {
-    /* the text box beside it is the fallback */
+    currentRefs = null;
   }
+  fillPicker('base');
+  fillPicker('head');
 }
 
-/** Compare from whatever was chosen in the picker. */
-function compareFromSelection() {
-  const base = document.getElementById('compareSelect').value;
-  if (!base) return;
+/**
+ * Fill one picker, grouped the way people look for things.
+ *
+ * Branches first, because "my branch against main" is the comparison people
+ * reach for. Every label goes in through `new Option`, which sets text, not
+ * markup: branch names and commit subjects come from whatever repository is
+ * open, and a ref name may legally contain `<` and `>`.
+ */
+function fillPicker(end) {
+  const select = document.getElementById(PICKERS[end].select);
+  const refs = currentRefs;
+  select.innerHTML = '';
 
-  document.getElementById('compareBase').value = '';
-  loadRepo({ base });
+  const placeholder = new Option(end === 'base' ? 'Choose a base…' : 'Choose what to compare…', '');
+  placeholder.disabled = true;
+  select.appendChild(placeholder);
+
+  const group = (label, options) => {
+    if (options.length === 0) return;
+    const optgroup = document.createElement('optgroup');
+    optgroup.label = label;
+    options.forEach(option => optgroup.appendChild(option));
+    select.appendChild(optgroup);
+  };
+
+  if (refs) {
+    group('Branches', refs.branches.map(branch => new Option(
+      `${branch.name}${branch.name === refs.current ? ' (current)' : ''}  ·  ${branch.when}`,
+      branch.name
+    )));
+    group('Remote branches', refs.remotes.map(branch => new Option(`${branch.name}  ·  ${branch.when}`, branch.name)));
+    group('Tags', refs.tags.map(tag => new Option(`${tag.name}  ·  ${tag.when}`, tag.name)));
+    group(
+      refs.current ? `Recent commits on ${refs.current}` : 'Recent commits',
+      refs.commits.map(commit => new Option(`${commit.short}  ·  ${commit.subject}  ·  ${commit.when}`, commit.sha))
+    );
+  }
+
+  select.appendChild(new Option('Other: a tag, HEAD~5, a sha…', OTHER_REF));
+  select.value = '';
 }
 
-/** Reload the repository as a range starting at whatever was typed. */
-function compareFrom() {
-  const base = document.getElementById('compareBase').value.trim();
+/**
+ * Point a picker at a ref, by name if it is offered, by sha if the name is
+ * not but the commit is, and otherwise through "Other…" with the text shown.
+ *
+ * A range opened by typing `HEAD~2` resolves to a commit that may well be in
+ * the list; showing it selected there is more useful than a picker stuck on
+ * "Other" around a value that is also sitting three rows down.
+ */
+function selectRef(end, name, sha) {
+  const select = document.getElementById(PICKERS[end].select);
+  const other = document.getElementById(PICKERS[end].other);
+  const offered = value => [...select.options].some(option => option.value === value);
 
-  if (!base) {
-    showStatus('Enter a commit, tag or branch to compare from', 'error');
+  if (name && offered(name)) {
+    select.value = name;
+  } else if (sha && offered(sha)) {
+    select.value = sha;
+  } else if (name || sha) {
+    select.value = OTHER_REF;
+    other.value = name || displayRef(sha);
+    other.classList.remove('hidden');
+    return;
+  } else {
+    select.value = '';
+  }
+  other.classList.add('hidden');
+  other.value = '';
+}
+
+/** The ref one end of the comparison currently names, or '' if none yet. */
+function pickedRef(end) {
+  const select = document.getElementById(PICKERS[end].select);
+  return select.value === OTHER_REF
+    ? document.getElementById(PICKERS[end].other).value.trim()
+    : select.value;
+}
+
+/** Either picker changed: compare as soon as both ends are known. */
+function onPickerChange(end) {
+  const select = document.getElementById(PICKERS[end].select);
+  const other = document.getElementById(PICKERS[end].other);
+
+  if (select.value === OTHER_REF) {
+    other.classList.remove('hidden');
+    other.focus();
+    return; // Enter in the box compares; see the listeners in DOMContentLoaded.
+  }
+
+  other.classList.add('hidden');
+  compareNow();
+}
+
+function compareNow() {
+  const base = pickedRef('base');
+  const head = pickedRef('head');
+  if (base && head) loadRepo({ base, head });
+}
+
+/** Reverse the comparison: "what does main have that my branch does not". */
+function swapCompare() {
+  const base = pickedRef('base');
+  const head = pickedRef('head');
+  if (base && head) loadRepo({ base: head, head: base });
+}
+
+/**
+ * The base most people mean, if the repository makes it obvious.
+ *
+ * The remote comes first: a local `main` that has not been pulled in a week
+ * is a quietly wrong base, and `origin/main` is what the pull request will be
+ * measured against. Never the branch you are on -- comparing a branch with
+ * itself is always empty, and offering it as a default would make the first
+ * click of the feature look broken.
+ */
+function defaultBase() {
+  const refs = currentRefs;
+  if (!refs) return null;
+
+  const known = new Set([...refs.branches, ...refs.remotes].map(ref => ref.name));
+  const candidates = ['origin/main', 'main', 'origin/master', 'master', 'origin/develop', 'develop'];
+  return candidates.find(name => known.has(name) && name !== refs.current) ?? null;
+}
+
+/**
+ * Open the compare row. With an obvious base, compare straight away: one
+ * click to the view a pull request would give you. Without one, show the
+ * pickers and wait -- a guessed comparison nobody asked for is worse than
+ * asking.
+ */
+function openCompare() {
+  document.getElementById('compareRow').classList.remove('hidden');
+  const head = currentRefs?.current ?? 'HEAD';
+  const base = defaultBase();
+
+  if (base) {
+    loadRepo({ base, head });
     return;
   }
 
-  loadRepo({ base });
+  selectRef('base', null, null);
+  selectRef('head', head, null);
+  document.getElementById('compareToggle').classList.add('hidden');
+  document.getElementById('scopeResetBtn').classList.remove('hidden');
+  document.getElementById(PICKERS.base.select).focus();
 }
 
 /** Back to the default scope: uncommitted changes, or the last commit. */
 function resetScope() {
-  document.getElementById('compareBase').value = '';
-  document.getElementById('compareSelect').value = '';
+  document.getElementById('compareRow').classList.add('hidden');
   loadRepo();
+}
+
+/**
+ * Say what the review is of, in the names the reviewer used.
+ *
+ * Built from DOM nodes rather than markup: branch names are chosen by
+ * whoever made the repository, and one may legally contain `<`.
+ *
+ * @param {{mode: string, range: ?object, files: object[]}} data
+ */
+function renderScope(data) {
+  const bar = document.getElementById('scopeBar');
+  const label = document.getElementById('scopeLabel');
+  const meta = document.getElementById('scopeMeta');
+  const note = document.getElementById('scopeNote');
+  const row = document.getElementById('compareRow');
+  const toggle = document.getElementById('compareToggle');
+  const reset = document.getElementById('scopeResetBtn');
+
+  const strong = text => {
+    const el = document.createElement('strong');
+    el.textContent = text;
+    return el;
+  };
+  const setNote = text => {
+    note.textContent = text ?? '';
+    note.classList.toggle('hidden', !text);
+  };
+
+  bar.classList.remove('hidden');
+  label.replaceChildren();
+  const branch = currentRefs?.current;
+
+  if (data.mode === 'range' && data.range) {
+    const range = data.range;
+    const base = displayRef(range.baseName ?? range.base);
+    const head = displayRef(range.headName ?? range.head);
+    const files = data.files.length;
+
+    label.append(strong(base), ' → ', strong(head));
+    meta.textContent = files > 0
+      ? `${plural(range.commits, 'commit')} · ${plural(files, 'file')} changed`
+      : `${plural(range.commits, 'commit')} · no files differ`;
+
+    // The empty cases first: they are the ones that need explaining, and an
+    // empty file list with no explanation reads as the tool having failed.
+    if (files === 0 && range.commits === 0) {
+      setNote(range.behind > 0
+        ? `${head} has nothing that ${base} does not already have. Try swapping them to see what ${base} adds.`
+        : `${base} and ${head} are the same commit, so there is nothing between them.`);
+    } else if (files === 0) {
+      setNote(`Those ${plural(range.commits, 'commit')} undo each other: every change in them was reverted again before ${head}, so there is no difference left to review.`);
+    } else if (range.behind > 0) {
+      // The merge-base diff leaves these out on purpose, the way a pull
+      // request does. Say so, or someone goes looking for main's change and
+      // concludes the tool lost it.
+      setNote(`${base} has ${plural(range.behind, 'newer commit')} that ${range.behind === 1 ? 'is' : 'are'} not on ${head}. ${range.behind === 1 ? 'It is' : 'They are'} left out: this shows only what ${head} changes since the two diverged, as a pull request would.`);
+    } else {
+      setNote(null);
+    }
+
+    row.classList.remove('hidden');
+    selectRef('base', range.baseName, range.base);
+    selectRef('head', range.headName, range.head);
+    toggle.classList.add('hidden');
+    reset.classList.remove('hidden');
+    return;
+  }
+
+  if (data.mode === 'lastCommit') {
+    label.append('Last commit');
+    if (branch) label.append(' on ', strong(branch));
+    const tip = currentRefs?.commits?.[0];
+    meta.textContent = tip ? `${tip.subject} · ${tip.short}` : '';
+  } else {
+    label.append('Uncommitted changes');
+    if (branch) label.append(' on ', strong(branch));
+    meta.textContent = plural(data.files.length, 'file') + ' changed';
+  }
+
+  setNote(null);
+  row.classList.add('hidden');
+  toggle.classList.remove('hidden');
+  reset.classList.add('hidden');
+}
+
+/** Empty the diff pane, so a finished comparison cannot leave the last one's file on screen. */
+function clearCodePane() {
+  currentFile = null;
+  currentDiffLines = [];
+  document.getElementById('codeSection').classList.add('hidden');
+  document.getElementById('currentFile').textContent = '';
+}
+
+/** What the file list says when a comparison has no files in it. */
+function showEmptyFileList(message) {
+  const filesList = document.getElementById('filesList');
+  const empty = document.createElement('div');
+  empty.className = 'files-empty';
+  empty.textContent = message;
+  filesList.replaceChildren(empty);
 }
 
 /**
  * Load a repository, optionally as a range between two commits.
  *
- * @param {{base?: string}} [scope] omit for the default: uncommitted changes,
- *   falling back to the last commit on a clean tree.
+ * @param {{base?: string, head?: string}} [scope] omit for the default:
+ *   uncommitted changes, falling back to the last commit on a clean tree.
+ *   `head` defaults to HEAD on the server.
  */
 async function loadRepo(scope = {}) {
   const repoPath = document.getElementById('repoPath').value.trim();
@@ -269,7 +454,9 @@ async function loadRepo(scope = {}) {
     const response = await fetch(`${API_BASE}/load-repo`, {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify(scope.base ? { repoPath, base: scope.base } : { repoPath })
+      body: JSON.stringify(scope.base
+        ? { repoPath, base: scope.base, ...(scope.head ? { head: scope.head } : {}) }
+        : { repoPath })
     });
 
     const data = await response.json();
@@ -289,9 +476,9 @@ async function loadRepo(scope = {}) {
       setRepoButton(data.repoPath);
     }
 
-    // Before renderScope, which needs the options present to be able to
-    // select the current base among them.
-    await loadCommitOptions(data.repoId);
+    // Before renderScope, which needs the options present to select the
+    // current ends among them, and the current branch to name it.
+    await loadRefs(data.repoId);
     renderScope(data);
 
     if (data.files.length === 0) {
@@ -301,9 +488,16 @@ async function loadRepo(scope = {}) {
       // that covers -- so this is information, not an error, and it must not
       // be dressed as one.
       if (data.mode === 'range') {
-        showStatus(data.message, 'success');
+        // The scope bar is already explaining this; a status line repeating
+        // it underneath is two bars saying one thing.
+        clearStatus();
         hidePicker();
         displayFiles([]);
+        showEmptyFileList('No files differ between these two.');
+        updateCommentsSidebar();
+        // Or the previous comparison's file stays on screen under a bar that
+        // says there are no files, and reads as part of this one.
+        clearCodePane();
         document.getElementById('loadBtn').disabled = false;
         return;
       }
@@ -313,9 +507,15 @@ async function loadRepo(scope = {}) {
       return;
     }
 
-    showStatus(data.message, 'success');
+    // The scope bar above says what was loaded, in more useful terms than
+    // this line did ("Found 3 changed file(s)"), so there is nothing left
+    // for the status line to add on success.
+    clearStatus();
     hidePicker();
     displayFiles(data.files);
+    // Which comments are in view depends on which files are, so the sidebar
+    // is redrawn for every new scope, not only when saved comments arrive.
+    updateCommentsSidebar();
 
     // Load saved comments
     const savedComments = await loadCommentsFromBackend();
@@ -335,7 +535,7 @@ async function loadRepo(scope = {}) {
       // Show comments sidebar immediately
       updateCommentsSidebar();
 
-      showStatus(`${data.message} - Loaded ${savedComments.length} saved comment(s)`, 'success');
+      showStatus(`Picked up ${plural(savedComments.length, 'saved comment')} from last time.`, 'success');
     }
 
     // Open something. A loaded repository used to sit behind an empty pane
@@ -362,6 +562,15 @@ async function loadRepo(scope = {}) {
 }
 
 // Display list of changed files
+/** What each status letter means, for the badge's tooltip and screen readers. */
+const FILE_STATUS_NAMES = {
+  A: 'Added',
+  M: 'Modified',
+  D: 'Deleted',
+  R: 'Renamed',
+  B: 'Binary'
+};
+
 function fileStatusClass(status) {
   switch (status) {
     case 'A': return 'file-status-added';
@@ -396,7 +605,12 @@ function displayFiles(files) {
       ? `${escapeHtml(path)}/<span class="filename">${escapeHtml(filename)}</span>`
       : `<span class="filename">${escapeHtml(filename)}</span>`;
     const statusClass = fileStatusClass(status);
-    const statusBadge = `<span class="file-status ${statusClass}">${status}</span>`;
+    // One letter is git's vocabulary, not everyone's. The name rides along as
+    // a tooltip and as the accessible label, so "D" is never the only thing
+    // saying that a file is gone. `status` is one of five letters the server
+    // produces, and escaped anyway: it is data that ends up in markup.
+    const statusName = FILE_STATUS_NAMES[status] ?? 'Changed';
+    const statusBadge = `<span class="file-status ${statusClass}" title="${statusName}" aria-label="${statusName}">${escapeHtml(status)}</span>`;
 
     // The row used to carry the file name itself, inside a string literal
     // inside the attribute the browser evaluates as JavaScript. A name with a
@@ -1387,8 +1601,17 @@ function resetApp() {
 // Show status message
 function showStatus(message, type) {
   const statusEl = document.getElementById('status');
-  statusEl.textContent = 'Status: ' + message;
+  // No "Status:" prefix. The element is role="status", which is what tells a
+  // screen reader what it is; sighted readers could already see that.
+  statusEl.textContent = message;
   statusEl.className = `status ${type}`;
+}
+
+/** Hide the status line, when something else on screen is already saying it. */
+function clearStatus() {
+  const statusEl = document.getElementById('status');
+  statusEl.textContent = '';
+  statusEl.className = 'status hidden';
 }
 
 // Track if we're in full context mode
@@ -1701,14 +1924,24 @@ function updateCommentsSidebar() {
         // anyway. A comment's identity here is its position in `comments`,
         // and that is a number. See #46.
         const commentIndex = comments.indexOf(comment);
+        // A comment is kept across comparisons -- switch from main -> feature
+        // back to the last commit and a note on a file only the branch
+        // touched is still yours. It just is not on screen, and a sidebar
+        // entry that looks attached but does nothing when clicked reads as
+        // lost. So it says where it stands.
+        const elsewhere = !currentFiles.some(f => f.path === file);
+        const elsewhereHtml = elsewhere
+          ? '<div class="comment-item-elsewhere-note">Not in this view</div>'
+          : '';
         html += `
-          <div class="comment-item">
+          <div class="comment-item${elsewhere ? ' comment-item-elsewhere' : ''}">
             <button class="comment-item-delete" onclick="event.stopPropagation(); deleteCommentFromSidebar(${Number(commentIndex)})" title="Delete comment">×</button>
             <div class="comment-item-content" onclick="jumpToComment(${Number(commentIndex)})">
               <div class="comment-item-file">${escapeHtml(file)}</div>
               <div class="comment-item-line">Line ${comment.line}</div>
               <div class="comment-item-text">${escapeHtml(comment.text)}</div>
               ${selectedHtml}
+              ${elsewhereHtml}
             </div>
           </div>
         `;
@@ -1748,7 +1981,17 @@ function jumpToComment(commentIndex) {
 
   // Find the file index
   const fileIndex = currentFiles.findIndex(f => f.path === file);
-  if (fileIndex === -1) return;
+  if (fileIndex === -1) {
+    // This used to return without a word, so clicking a comment did nothing
+    // and looked broken. The comment is safe; the file is just not part of
+    // what is being compared right now.
+    showStatus(
+      `${file} is not in the files you are looking at now, so this comment cannot be shown in place. ` +
+      'It is kept, and will be back in place in any view that includes that file.',
+      'loading'
+    );
+    return;
+  }
 
   // Load the file
   loadFile(file, fileIndex).then(() => {
@@ -1889,11 +2132,13 @@ document.addEventListener('DOMContentLoaded', () => {
     }
   });
 
-  document.getElementById('compareBase').addEventListener('keypress', (e) => {
-    if (e.key === 'Enter') {
-      compareFrom();
-    }
-  });
+  for (const end of ['base', 'head']) {
+    document.getElementById(PICKERS[end].other).addEventListener('keypress', (e) => {
+      if (e.key === 'Enter') {
+        compareNow();
+      }
+    });
+  }
 
   // Initialize resize handle
   initResizeHandle();

@@ -12,7 +12,7 @@ const {
   resolveRepoFile,
   PathEscapeError
 } = require('./lib/paths');
-const { collectWorkingChanges, collectCommitChanges } = require('./lib/changes');
+const { collectWorkingChanges, collectCommitChanges, parseNameStatus } = require('./lib/changes');
 const { SessionStore } = require('./lib/sessions');
 const { normalizeComments } = require('./lib/comments');
 const { formatReview, reviewFilename, commentsFilename } = require('./lib/review');
@@ -67,6 +67,11 @@ class FileNotFoundError extends Error {
 // rather than the whole history -- anything older is still reachable by
 // typing a ref, which is what the text box is for.
 const COMMIT_LIST_LIMIT = 30;
+
+// Branches and tags offered per group. A repository with two hundred stale
+// branches should still produce a list someone can scan; the ones past the
+// cut are the least recently touched and are still reachable by typing.
+const REF_LIST_LIMIT = 40;
 
 function createApp(options = {}) {
   const {
@@ -128,10 +133,18 @@ function createApp(options = {}) {
     const absolutePath = resolveRepoFile(session.repoPath, filePath);
 
     if (session.range) {
+      // A range is two commits, and the working tree is neither of them. It
+      // used to be the fallback here, which was merely odd while the head of
+      // every range was HEAD and is wrong now that it can be another branch:
+      // Full Context on feature/billing, opened from a checkout of
+      // feature/auth, would show auth's copy of the file under billing's name.
+      //
+      // A path missing at the head was deleted inside the range, and the text
+      // worth showing is the text that was deleted.
       try {
         return await git.show([`${session.range.head}:${filePath}`]);
       } catch {
-        return await fs.readFile(absolutePath, 'utf-8').catch(() => '');
+        return git.show([`${session.range.from}:${filePath}`]).catch(() => '');
       }
     }
 
@@ -205,7 +218,7 @@ function createApp(options = {}) {
 
   async function diffForFile(git, session, filePath) {
     if (session.range) {
-      return git.diff([session.range.base, session.range.head, '--', filePath]);
+      return git.diff([session.range.from, session.range.head, '--', filePath]);
     }
     if (!(await hasCommits(git))) {
       return '';
@@ -251,7 +264,7 @@ function createApp(options = {}) {
       }
     }
 
-    const resolve = async (label, ref) => {
+    const resolve = async ref => {
       try {
         return (await git.revparse([`${ref}^{commit}`])).trim();
       } catch {
@@ -259,19 +272,67 @@ function createApp(options = {}) {
       }
     };
 
-    const baseSha = await resolve('base', base);
-    const headSha = await resolve('head', head);
+    const baseSha = await resolve(base);
+    const headSha = await resolve(head);
 
-    // `base..head` counts what head has and base does not, which is the
-    // number a reviewer means by "how many commits am I looking at". It is
-    // not symmetric, and it is not the same as the file count -- a range
-    // whose changes cancel out has commits and no files, which is the whole
-    // reason this number is reported.
-    const commits = Number(
-      (await git.raw(['rev-list', '--count', `${baseSha}..${headSha}`])).trim()
+    // The diff starts at the merge base, not at `base` itself -- what a pull
+    // request shows, and for the same reason. Compare feature/auth against a
+    // main that has moved on since the branch was cut, and a plain
+    // `git diff main feature/auth` includes main's newer commits *reversed*:
+    // the review then shows the feature author "undoing" a change they never
+    // touched, and a reviewer comments on it. On straight-line history the
+    // merge base of an ancestor and its descendant is the ancestor, so this
+    // changes nothing for x1..x5.
+    //
+    // Unrelated histories have no merge base; the plain two-ended diff is the
+    // only answer there, and it is the one given.
+    const from = await git.raw(['merge-base', baseSha, headSha])
+      .then(out => out.trim() || baseSha)
+      .catch(() => baseSha);
+
+    // `base..head` is what head has and base does not -- exactly the commits
+    // whose changes are in the diff. `head..base` is the other direction: what
+    // base has moved on by, which the merge-base diff deliberately leaves out
+    // and which the page has to say it left out, or someone will go looking
+    // for main's change and conclude the tool lost it.
+    const count = async range => Number(
+      (await git.raw(['rev-list', '--count', range])).trim()
     );
+    const commits = await count(`${baseSha}..${headSha}`);
+    const behind = await count(`${headSha}..${baseSha}`);
 
-    return { base: baseSha, head: headSha, commits: Number.isFinite(commits) ? commits : 0 };
+    // What the person asked for, kept alongside the SHAs. Nobody chose
+    // `3eb57959`; they chose `main`, and a scope bar that answers in SHAs has
+    // translated their question into one they did not ask.
+    const nameOf = async ref => {
+      if (ref !== 'HEAD') return ref;
+      const branch = await git.revparse(['--abbrev-ref', 'HEAD']).then(b => b.trim()).catch(() => 'HEAD');
+      return branch === 'HEAD' ? headSha.slice(0, 8) : branch;
+    };
+
+    return {
+      base: baseSha,
+      head: headSha,
+      from,
+      commits: Number.isFinite(commits) ? commits : 0,
+      behind: Number.isFinite(behind) ? behind : 0,
+      baseName: await nameOf(base),
+      headName: await nameOf(head)
+    };
+  }
+
+  /**
+   * The changed files of a range, with the status git gives each one.
+   *
+   * @param {import('simple-git').SimpleGit} git
+   * @param {{from: string, head: string}} range
+   */
+  async function collectRangeChanges(git, range) {
+    const [summary, nameStatus] = await Promise.all([
+      git.diffSummary([range.from, range.head]),
+      git.raw(['diff', '--name-status', '-z', '-M', range.from, range.head])
+    ]);
+    return collectCommitChanges(summary, parseNameStatus(nameStatus));
   }
 
   /**
@@ -288,15 +349,20 @@ function createApp(options = {}) {
    * @returns {string}
    */
   function describeRange(range, fileCount) {
-    const commits = `${range.commits} commit${range.commits === 1 ? '' : 's'}`;
+    const plural = (n, word) => `${n} ${word}${n === 1 ? '' : 's'}`;
+    const ends = `${range.baseName ?? range.base.slice(0, 8)} \u2192 ${range.headName ?? range.head.slice(0, 8)}`;
 
-    if (fileCount === 0) {
-      return range.commits === 0
-        ? 'Those two commits are the same, so there is nothing between them.'
-        : `${commits}, and no net change between the two ends — every change in them was undone again inside the range.`;
+    if (fileCount > 0) {
+      return `${ends}: ${plural(range.commits, 'commit')}, ${plural(fileCount, 'changed file')}`;
     }
 
-    return `${commits}, ${fileCount} changed file${fileCount === 1 ? '' : 's'} between the two ends`;
+    if (range.commits === 0) {
+      return range.behind === 0
+        ? `${ends}: both point at the same commit, so there is nothing between them.`
+        : `${ends}: ${range.headName ?? 'the head'} has no commits that ${range.baseName ?? 'the base'} does not already have.`;
+    }
+
+    return `${ends}: ${plural(range.commits, 'commit')}, and no net change \u2014 every change in them was undone again inside the range.`;
   }
 
   /**
@@ -337,6 +403,66 @@ function createApp(options = {}) {
    * this reads history out of a repository, and the session is what says
    * which repository the caller has already been granted.
    */
+  /**
+   * Everything the compare pickers offer: branches, tags and recent commits.
+   *
+   * Branches come first in the page because comparing branches is what people
+   * reach for -- "what does my branch change against main" -- and a picker
+   * that only lists commits of the current branch makes that the one
+   * comparison you cannot pick. Remote-tracking branches are included because
+   * `origin/main` is the base most reviews actually want, and a local `main`
+   * that has not been pulled in a week is a quietly wrong one.
+   *
+   * Sorted by most recent activity, so the branch you are working on and the
+   * one you branched from are near the top rather than alphabetised into the
+   * middle of forty others.
+   */
+  app.get('/api/refs/:repoId', async (req, res) => {
+    const session = requireSession(res, req.params.repoId);
+    if (!session) return;
+
+    const git = gitFactory(session.repoPath);
+    const refList = async (pattern, limit) => {
+      try {
+        const raw = await git.raw([
+          'for-each-ref', `--count=${limit}`, '--sort=-committerdate',
+          '--format=%(refname:short)%00%(objectname)%00%(committerdate:relative)%00%(subject)%00%(symref)',
+          pattern
+        ]);
+        return raw.split('\n').filter(Boolean).map(line => {
+          const [name, sha, when, subject, symref] = line.split('\u0000');
+          return { name, sha, when, subject, symref };
+        })
+          // A symbolic ref points at another ref rather than being one --
+          // `origin/HEAD` in every clone. It cannot be filtered by name:
+          // `refname:short` abbreviates it to plain `origin`, which is how it
+          // first slipped into the list as a "branch".
+          .filter(ref => !ref.symref)
+          .map(({ symref, ...ref }) => ref);
+      } catch {
+        return [];
+      }
+    };
+
+    const current = await git.revparse(['--abbrev-ref', 'HEAD']).then(b => b.trim()).catch(() => null);
+    const [branches, remotes, tags, commits] = await Promise.all([
+      refList('refs/heads', REF_LIST_LIMIT),
+      refList('refs/remotes', REF_LIST_LIMIT),
+      refList('refs/tags', REF_LIST_LIMIT),
+      recentCommits(git, COMMIT_LIST_LIMIT).catch(() => [])
+    ]);
+
+    res.json({
+      // `HEAD` from --abbrev-ref means detached; say so rather than pretend
+      // there is a branch called HEAD.
+      current: current === 'HEAD' ? null : current,
+      branches,
+      remotes,
+      tags,
+      commits
+    });
+  });
+
   app.get('/api/commits/:repoId', async (req, res) => {
     try {
       const session = requireSession(res, req.params.repoId);
@@ -505,7 +631,7 @@ function createApp(options = {}) {
           return res.status(400).json({ error: error.message });
         }
 
-        files = collectCommitChanges(await git.diffSummary([range.base, range.head]));
+        files = await collectRangeChanges(git, range);
         mode = 'range';
         message = describeRange(range, files.length);
       } else {
@@ -517,9 +643,7 @@ function createApp(options = {}) {
         if (files.length === 0) {
           try {
             const lastCommit = await resolveRange(git, 'HEAD~1', 'HEAD');
-            const commitFiles = collectCommitChanges(
-              await git.diffSummary([lastCommit.base, lastCommit.head])
-            );
+            const commitFiles = await collectRangeChanges(git, lastCommit);
             if (commitFiles.length > 0) {
               files = commitFiles;
               mode = 'lastCommit';

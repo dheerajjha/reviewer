@@ -79,7 +79,7 @@ Markdown that has to be parsed back out of prose.
 | `repository.head` | The commit the working tree was on **when this document was produced** — not when the review was written. `null` if git would not say. See the note below before using it to detect staleness. |
 | `repository.branch` | Branch name, or `null`. |
 | `mode` | `working` (working tree vs `HEAD`), `lastCommit` (`HEAD` vs its parent), `range` (two refs the reviewer chose), or `null` for a review saved before the mode was recorded. It is stored with the review, so `reviewer export` reports the same value the browser did &mdash; it no longer goes `null` simply because there is no session. |
-| `range` | `{ base, head, commits }` for a `range` review &mdash; both ends as full SHAs, resolved when the review was opened, and how many commits separate them. **Omitted** entirely otherwise, so `"range" in document` is a meaningful test. `commits` is not the file count: a range whose changes cancel out has commits and no files. |
+| `range` | For a `range` review: `{ base, head, from, commits, behind, baseName, headName }`. `base` and `head` are full SHAs of the two ends, resolved once when the review was opened; `baseName` and `headName` are what the reviewer chose (`main`, `feature/auth`, `HEAD~5`). **The diff runs from `from`, the merge base, not from `base`** &mdash; what a pull request shows &mdash; so work on `base` since the two diverged is not in it. `commits` is how many commits the reviewed side has; `behind` is how many the base has that were left out. **Omitted** entirely when there is no range, so `"range" in document` is a meaningful test. Reviews saved by 2.10 and 2.11 carry only `{ base, head, commits }`. |
 | `summary` | `comments` and `files` counts. |
 | `comments[].id` | `<file>:<line>`, with `#2`, `#3`&hellip; appended where that is not unique &mdash; in a diff the removed line and the line that replaced it can share a number, and both can carry a comment. Unique within the document and stable across exports of the same review. |
 | `comments[].file` | Repo-relative path. |
@@ -102,6 +102,11 @@ files were first commented on, and ordered by line within a file.
   previously told you to make exactly that comparison; that advice was wrong.
   Tracked as [#32](https://github.com/dheerajjha/reviewer/issues/32), which has
   to change the stored format to fix.
+- **When `range.from` differs from `range.base`, the two ends had diverged.**
+  Code on the base that differs from the head, in files the review did not
+  cover, is the base's own newer work — `range.behind` commits of it. It is not
+  something the reviewer asked anyone to change. The prompt format says this in
+  so many words; a consumer of the JSON should act on it the same way.
 - **A `range` review is a single combined diff, not a replay of each commit.**
   `commits` says how many were flattened into it, and a file changed and
   changed back inside the range does not appear at all &mdash; correctly, since

@@ -6,7 +6,64 @@ adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
 ## [Unreleased]
 
+### Added
+
+- **Compare any two branches, the way a pull request does.** The range control
+  is two pickers now — **Base** and **Compare**, GitHub's own words for the two
+  ends — each listing branches, remote branches, tags and recent commits, with
+  **Other…** for anything else git understands. Before this only the base end
+  was choosable and the head was always wherever you were checked out, so two
+  branches you were not on could not be compared at all, and branches were not
+  in the list — only commits of the current one.
+- **One click to the pull-request view.** **Compare branches** compares your
+  branch against `origin/main`, `main`, `master` or `develop`, whichever exists
+  first, and asks instead of guessing when none does. The remote is preferred:
+  a local `main` that has not been pulled in a week is a quietly wrong base.
+- **⇄ swaps the ends**, for the other question: what has `main` got that my
+  branch has not?
+- **The scope bar speaks in names.** It says `main → feature/auth`, not
+  `Comparing 3eb57959 → 4f2c0e1d`, and names the branch you are on in the
+  default view — which the page never said anywhere before.
+- Status badges carry their meaning as a tooltip and accessible label, so `D`
+  is never the only thing saying a file is gone.
+- `GET /api/refs/:repoId` — branches, remote branches, tags and recent
+  commits in one call.
+
 ### Fixed
+
+- **Comparing a branch against a base that had moved on showed the base's
+  newer work reversed.** A plain two-ended diff of `main` and `feature/auth`,
+  after `main` gained a commit, listed that commit's file as changed *by the
+  branch* — undoing it — for someone to comment on. Comparisons now run from
+  the merge base, as a pull request does, and the scope bar says how many
+  commits on the base were left out and why. Straight-line history is
+  unaffected: the merge base of an ancestor and its descendant is the ancestor.
+- **Status badges in commit and range views were guessed from line counts,
+  and the guess was often wrong.** An edit that only added lines to an
+  existing file was badged `A`, new file; one that only removed lines was
+  badged `D`, deleted. They come from `git diff --name-status` now, which is
+  git's own answer. Working-tree views were never affected.
+- **An empty comparison left the previous comparison's file on screen**, under
+  a bar saying there were no files. The pane clears, and the file list says why
+  it is empty.
+- **Full Context in a range could show the wrong file.** It fell back to the
+  working tree, which is neither end of a range — and with the head able to be
+  another branch, would have shown the checked-out branch's copy under the
+  compared branch's name. A file deleted inside a range now shows what was
+  deleted rather than nothing.
+- **"Back to latest" became unreadable on hover** — dark text on the primary
+  blue, about 2.4:1 — because `button:hover` outranked its single class. Its
+  replacement has its own hover rule and measures 13.3:1.
+- The range controls overflowed the bar at around 760px wide. They stack below
+  720px now, with the swap button turned to point between them.
+- A comment on a file outside the current view did nothing when clicked, and
+  looked lost. It is marked **Not in this view** and says so when clicked;
+  it is back in place in any view that includes its file.
+- Two bars said the same thing after every load — "Status: Found 3 changed
+  file(s)" above a scope bar saying it better. The status line is kept for
+  loading, errors and news, and has lost its "Status:" prefix in favour of
+  `role="status"`.
+- The README's HTTP API table was missing `/api/alive` and `/api/commits`.
 
 - A lifecycle test raced a 20ms reconnect against a 60ms grace window and
   failed once on a loaded macOS runner. The margins are wide now and the

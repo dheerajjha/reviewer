@@ -3,7 +3,7 @@
 [![CI](https://github.com/dheerajjha/reviewer/actions/workflows/ci.yml/badge.svg)](https://github.com/dheerajjha/reviewer/actions/workflows/ci.yml)
 [![License: MIT](https://img.shields.io/badge/license-MIT-blue.svg)](LICENSE)
 [![Node](https://img.shields.io/badge/node-%3E%3D18-brightgreen.svg)](package.json)
-[![Tests](https://img.shields.io/badge/tests-314-brightgreen.svg)](test/)
+[![Tests](https://img.shields.io/badge/tests-335-brightgreen.svg)](test/)
 [![Dependencies](https://img.shields.io/badge/dependencies-3-brightgreen.svg)](package.json)
 
 When an agent writes the code, reading it becomes the bottleneck — and the tool
@@ -141,34 +141,46 @@ is nothing to configure:
 | Working directory clean | The last commit against its parent |
 | No commits yet | Every tracked and untracked file, as wholly new |
 
-### Reviewing further back than the last commit
+### Comparing branches
 
-Those defaults cover the common case and nothing else needs setting up, but a
-branch you have been working on for a day is several commits deep, and the
-default scope only ever shows you the most recent one.
+Those defaults cover the common case with nothing to set up, but a branch you
+have worked on for a day is several commits deep, and the default scope only
+ever shows the most recent one.
 
-**Changes since** in the header takes any earlier commit and reloads the review
-as a single combined diff up to `HEAD`. Pick one from the dropdown — recent
-commits by subject line and when they landed, so you do not have to go and find
-a SHA — or type a branch, a tag, or something like `HEAD~5` in the box beside
-it for anything the list does not reach.
+**Compare branches** in the header opens the comparison your pull request would
+show. If the repository has an obvious base — `origin/main`, then `main`, then
+`master` or `develop` — it compares your current branch against it straight
+away; otherwise it asks. Remote branches come first because a local `main` that
+has not been pulled in a week is a quietly wrong base.
 
-The commit the range starts from is not itself included: "changes since x1"
-means everything after x1, the same as `x1..HEAD`.
+Both ends are pickers: **Base** and **Compare**, the same two words a pull
+request uses. Each lists branches, remote branches, tags and recent commits, so
+you do not have to go and find a SHA. **Other…** at the bottom of either takes
+anything else git understands — `HEAD~5`, a tag, a SHA from somewhere else. The
+⇄ button swaps them, which answers the other question: what has `main` got that
+my branch has not?
 
-The bar keeps saying how many commits the range covers, and it keeps saying it
-when there are no files:
+**It shows what the branch changes, not everything that differs.** If `main`
+has moved on since your branch was cut, a plain two-ended diff would include
+`main`'s newer work *reversed*, as though your branch had undone it. The
+comparison starts from where the two diverged instead, exactly as a pull
+request does, and says what it left out:
 
 ```
-Comparing 86b28f11 → 27668114 — 2 commits, shown as one combined diff
-2 commits, and no net change between the two ends — every change in them was
-undone again inside the range.
+main → feature/auth    3 commits · 2 files changed
+
+main has 1 newer commit that is not on feature/auth. It is left out: this shows
+only what feature/auth changes since the two diverged, as a pull request would.
 ```
 
-That is a real answer, not an empty screen. A file added in one commit and
-deleted in a later one is correctly absent from a diff of the two ends, and
-"no net change across 2 commits" is a different statement from "nothing to
-review".
+An empty comparison explains itself rather than showing a blank list. Two
+commits that add a file and then delete it produce no diff between the ends —
+correctly — and that reads as *"2 commits undo each other"*, not as *"nothing
+to review"*.
+
+Comments are kept when you switch between comparisons. One on a file that is
+not in the current view stays in the comments list, marked **Not in this
+view**, and is back in place whenever you open a view that includes the file.
 
 Modified, added, deleted, renamed, and binary files are all listed, each marked
 with its git status letter. Deleted lines are commentable too — the most useful
@@ -293,7 +305,10 @@ The UI is a client of this; nothing is hidden from you.
 | Endpoint | Purpose |
 |---|---|
 | `GET /api/health` | Liveness, plus the number of open sessions |
-| `POST /api/load-repo` | Open a repository; returns a `repoId` and the changed files |
+| `POST /api/load-repo` | Open a repository; returns a `repoId` and the changed files. Pass `base` (and optionally `head`) to compare two refs from their merge base |
+| `GET /api/refs/:repoId` | Branches, remote branches, tags and recent commits, for choosing what to compare |
+| `GET /api/commits/:repoId` | Recent commits only; kept for callers of 2.11 |
+| `GET /api/alive` | Held open by the page; when the last one closes, a terminal run stops |
 | `GET /api/file/:repoId/:path` | The file's diff, as structured lines |
 | `GET /api/file-full/:repoId/:path` | Every line of the file, for context |
 | `POST /api/save-comments` | Persist the current comments |
@@ -323,7 +338,7 @@ rather than a public issue.
 
 ```bash
 npm install           # 3 dependencies, no build step, ~6MB
-npm test              # 314 tests
+npm test              # 335 tests
 npm run test:watch
 npm run test:coverage
 ```
