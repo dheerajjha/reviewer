@@ -78,7 +78,8 @@ Markdown that has to be parsed back out of prose.
 | `repository.name` | Directory name, sanitized for use in filenames. |
 | `repository.head` | The commit the working tree was on **when this document was produced** — not when the review was written. `null` if git would not say. See the note below before using it to detect staleness. |
 | `repository.branch` | Branch name, or `null`. |
-| `mode` | `working` (working tree vs `HEAD`), `lastCommit` (`HEAD` vs its parent), or `null` for a review saved before the mode was recorded. It is stored with the review, so `reviewer export` reports the same value the browser did &mdash; it no longer goes `null` simply because there is no session. |
+| `mode` | `working` (working tree vs `HEAD`), `lastCommit` (`HEAD` vs its parent), `range` (two refs the reviewer chose), or `null` for a review saved before the mode was recorded. It is stored with the review, so `reviewer export` reports the same value the browser did &mdash; it no longer goes `null` simply because there is no session. |
+| `range` | `{ base, head, commits }` for a `range` review &mdash; both ends as full SHAs, resolved when the review was opened, and how many commits separate them. **Omitted** entirely otherwise, so `"range" in document` is a meaningful test. `commits` is not the file count: a range whose changes cancel out has commits and no files. |
 | `summary` | `comments` and `files` counts. |
 | `comments[].id` | `<file>:<line>`, with `#2`, `#3`&hellip; appended where that is not unique &mdash; in a diff the removed line and the line that replaced it can share a number, and both can carry a comment. Unique within the document and stable across exports of the same review. |
 | `comments[].file` | Repo-relative path. |
@@ -101,6 +102,12 @@ files were first commented on, and ordered by line within a file.
   previously told you to make exactly that comparison; that advice was wrong.
   Tracked as [#32](https://github.com/dheerajjha/reviewer/issues/32), which has
   to change the stored format to fix.
+- **A `range` review is a single combined diff, not a replay of each commit.**
+  `commits` says how many were flattened into it, and a file changed and
+  changed back inside the range does not appear at all &mdash; correctly, since
+  nothing about it differs between the two ends. Do not read an empty
+  `comments`/file set as "nothing happened" when `range.commits` is above
+  zero.
 - **The prompt format states what was reviewed, and it is not always a
   commit.** A `working` review is of changes that are *not* in
   `repository.head`, so the briefing says so rather than naming the commit;

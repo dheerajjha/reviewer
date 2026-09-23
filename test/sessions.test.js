@@ -9,7 +9,7 @@ test('create returns an id that resolves to the repository', () => {
   const sessions = new SessionStore();
   const repoId = sessions.create('/work/app', 'working');
 
-  assert.deepEqual(sessions.get(repoId), { repoPath: '/work/app', mode: 'working' });
+  assert.deepEqual(sessions.get(repoId), { repoPath: '/work/app', mode: 'working', range: null });
 });
 
 test('get returns undefined for an unknown id', () => {

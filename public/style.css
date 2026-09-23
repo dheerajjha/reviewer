@@ -1877,3 +1877,61 @@ button:disabled {
   color: #7a5d00;
   text-align: center;
 }
+
+/* What the review is of, and how to change it.
+ *
+ * Its own row under the status line rather than beside the repository
+ * controls: choosing a repository and choosing which of its commits to look
+ * at are two different decisions, and crowding them made the header read as
+ * one long form. */
+.scope-bar {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  flex-wrap: wrap;
+  gap: 8px 16px;
+  margin-top: 8px;
+  padding: 8px 12px;
+  border-radius: 6px;
+  background: #f3f4f6;
+  border-left: 3px solid #6a737d;
+  font-size: 13px;
+}
+
+/* The scope reads as a sentence rather than a field label, because the case
+ * that matters most is "9 commits, and no net change" — which has to be
+ * legible as an explanation, not as a value. */
+.scope-label {
+  color: #24292e;
+  min-width: 0;
+}
+
+.scope-compare {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  flex-shrink: 0;
+}
+
+.scope-compare label {
+  color: #6a737d;
+  white-space: nowrap;
+}
+
+.scope-compare input {
+  width: 190px;
+  font-family: ui-monospace, SFMono-Regular, Menlo, monospace;
+  font-size: 12px;
+}
+
+.scope-reset {
+  background: transparent;
+  border: 1px solid #d1d5da;
+  color: #24292e;
+}
+
+@media (max-width: 720px) {
+  .scope-compare input {
+    width: 120px;
+  }
+}

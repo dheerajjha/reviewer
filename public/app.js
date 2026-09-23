@@ -132,7 +132,70 @@ function calculateSimilarity(str1, str2) {
 }
 
 // Load local repository
-async function loadRepo() {
+/** Short form of a commit sha, for reading rather than for copying. */
+function shortSha(sha) {
+  return typeof sha === 'string' ? sha.slice(0, 8) : '';
+}
+
+/**
+ * Say what the review is of, above the files.
+ *
+ * The empty-range case is the reason this exists. `git diff x3 x5` over work
+ * that was added and then removed is correctly empty, and a file list showing
+ * nothing is indistinguishable from a repository with nothing to review. The
+ * commit count stays on screen so that an empty list reads as "9 commits, no
+ * net change" rather than as "nothing happened".
+ *
+ * @param {{mode: string, range: ?{base: string, head: string, commits: number}}} data
+ */
+function renderScope(data) {
+  const bar = document.getElementById('scopeBar');
+  const label = document.getElementById('scopeLabel');
+  const reset = document.getElementById('scopeResetBtn');
+
+  bar.classList.remove('hidden');
+  reset.classList.toggle('hidden', data.mode !== 'range');
+
+  if (data.mode === 'range' && data.range) {
+    const { base, head, commits } = data.range;
+    label.textContent =
+      `Comparing ${shortSha(base)} \u2192 ${shortSha(head)} \u2014 ` +
+      `${commits} commit${commits === 1 ? '' : 's'}, shown as one combined diff`;
+    document.getElementById('compareBase').value = shortSha(base);
+    return;
+  }
+
+  label.textContent = data.mode === 'lastCommit'
+    ? 'Reviewing the last commit'
+    : 'Reviewing uncommitted changes';
+  document.getElementById('compareBase').value = '';
+}
+
+/** Reload the repository as a range starting at whatever was typed. */
+function compareFrom() {
+  const base = document.getElementById('compareBase').value.trim();
+
+  if (!base) {
+    showStatus('Enter a commit, tag or branch to compare from', 'error');
+    return;
+  }
+
+  loadRepo({ base });
+}
+
+/** Back to the default scope: uncommitted changes, or the last commit. */
+function resetScope() {
+  document.getElementById('compareBase').value = '';
+  loadRepo();
+}
+
+/**
+ * Load a repository, optionally as a range between two commits.
+ *
+ * @param {{base?: string}} [scope] omit for the default: uncommitted changes,
+ *   falling back to the last commit on a clean tree.
+ */
+async function loadRepo(scope = {}) {
   const repoPath = document.getElementById('repoPath').value.trim();
 
   if (!repoPath) {
@@ -147,7 +210,7 @@ async function loadRepo() {
     const response = await fetch(`${API_BASE}/load-repo`, {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ repoPath })
+      body: JSON.stringify(scope.base ? { repoPath, base: scope.base } : { repoPath })
     });
 
     const data = await response.json();
@@ -167,7 +230,22 @@ async function loadRepo() {
       setRepoButton(data.repoPath);
     }
 
+    renderScope(data);
+
     if (data.files.length === 0) {
+      // A range with no files is a real answer, not a failure: every change
+      // in it was undone again before the far end. The server says so in
+      // `message`, and the scope bar above is still showing how many commits
+      // that covers -- so this is information, not an error, and it must not
+      // be dressed as one.
+      if (data.mode === 'range') {
+        showStatus(data.message, 'success');
+        hidePicker();
+        displayFiles([]);
+        document.getElementById('loadBtn').disabled = false;
+        return;
+      }
+
       showStatus('No uncommitted changes found in the repository', 'error');
       document.getElementById('loadBtn').disabled = false;
       return;
@@ -1746,6 +1824,12 @@ document.addEventListener('DOMContentLoaded', () => {
   document.getElementById('repoPath').addEventListener('keypress', (e) => {
     if (e.key === 'Enter') {
       loadRepo();
+    }
+  });
+
+  document.getElementById('compareBase').addEventListener('keypress', (e) => {
+    if (e.key === 'Enter') {
+      compareFrom();
     }
   });
 

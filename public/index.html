@@ -54,6 +54,22 @@
       </div>
     </div>
     <div id="status" class="status"></div>
+
+    <div id="scopeBar" class="scope-bar hidden">
+      <span id="scopeLabel" class="scope-label"></span>
+      <div class="scope-compare">
+        <label for="compareBase">Compare from</label>
+        <input
+          type="text"
+          id="compareBase"
+          placeholder="commit, tag or branch"
+          spellcheck="false"
+          autocomplete="off"
+          value="">
+        <button id="compareBtn" onclick="compareFrom()">Compare</button>
+        <button id="scopeResetBtn" class="scope-reset hidden" onclick="resetScope()">Back to latest</button>
+      </div>
+    </div>
   </header>
 
   <div class="main-container">
