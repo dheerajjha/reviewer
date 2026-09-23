@@ -451,3 +451,48 @@ test('with no commit at all the briefing omits the line rather than half-saying 
   assert.doesNotMatch(briefing, /Reviewed/);
   assert.match(briefing, /Repository: \/work\/api/);
 });
+
+test('a range review names both ends and how many commits it flattened', () => {
+  // An agent handed a combined diff of nine commits should know that is what
+  // it is holding. Without the count, a range of nine reads exactly like a
+  // range of one.
+  const briefing = formatPrompt(buildReviewDocument({
+    repoPath: '/work/api',
+    generatedAt: new Date('2026-09-23T00:00:00Z'),
+    head: 'ff92a86',
+    branch: 'main',
+    mode: 'range',
+    range: { base: '5ef1109', head: 'ff92a86', commits: 9 },
+    comments: [{ file: 'a.js', line: 1, lineContent: 'const x = 1;', text: 'why' }]
+  }));
+
+  assert.match(briefing, /between 5ef1109 and ff92a86 \(9 commits\)/);
+  assert.match(briefing, /single combined diff/);
+});
+
+test('a one-commit range still reads as English', () => {
+  const briefing = formatPrompt(buildReviewDocument({
+    repoPath: '/work/api',
+    generatedAt: new Date('2026-09-23T00:00:00Z'),
+    head: 'ff92a86',
+    mode: 'range',
+    range: { base: '5ef1109', head: 'ff92a86', commits: 1 },
+    comments: [{ file: 'a.js', line: 1, lineContent: 'x', text: 'y' }]
+  }));
+
+  assert.match(briefing, /\(1 commit\)/);
+  assert.doesNotMatch(briefing, /1 commits/);
+});
+
+test('a document with no range omits the field rather than nulling it', () => {
+  // Same rule the optional comment fields follow, so `'range' in document`
+  // is a meaningful test.
+  const working = buildReviewDocument({
+    repoPath: '/work/api',
+    generatedAt: new Date('2026-09-23T00:00:00Z'),
+    mode: 'working',
+    comments: [{ file: 'a.js', line: 1, lineContent: 'x', text: 'y' }]
+  });
+
+  assert.equal('range' in working, false);
+});

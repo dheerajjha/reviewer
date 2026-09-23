@@ -1355,3 +1355,165 @@ test('saving comments records which mode the review was written in', async t => 
   );
   assert.equal(envelope.mode, 'working');
 });
+
+// --- #76: reviewing a range of commits -----------------------------------
+
+/**
+ * A repository with five commits, where x2 adds a file that x3..x5 never
+ * touch, and x4/x5 add and remove one. Both cases matter: the first is what
+ * a HEAD~1 review cannot see, the second is what a combined diff correctly
+ * shows as nothing.
+ *
+ * @returns {Promise<{repoPath: string, sha: (n: number) => Promise<string>}>}
+ */
+async function repoWithFiveCommits() {
+  const repoPath = await createTempRepo();
+  await commitFiles(repoPath, { 'a.txt': 'one\n', 'b.txt': 'keep\n' }, 'x1');
+  await commitFiles(repoPath, { 'a.txt': 'two\n', 'c.txt': 'added in x2\n' }, 'x2');
+  await commitFiles(repoPath, { 'a.txt': 'three\n' }, 'x3');
+  await git(repoPath, ['rm', '-q', 'b.txt']);
+  await git(repoPath, ['commit', '-qm', 'x3-delete']);
+  await commitFiles(repoPath, { 'd.txt': 'temporary\n' }, 'x4');
+  await git(repoPath, ['rm', '-q', 'd.txt']);
+  await git(repoPath, ['commit', '-qm', 'x5']);
+
+  return {
+    repoPath,
+    sha: async n => (await git(repoPath, ['rev-parse', `HEAD~${n}`])).stdout.trim()
+  };
+}
+
+/** POST /api/load-repo with whatever scope. */
+async function loadScope(url, body) {
+  const response = await fetch(`${url}/api/load-repo`, {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify(body)
+  });
+  return { status: response.status, body: await response.json() };
+}
+
+test('a range shows work an earlier commit introduced, which HEAD~1 cannot', async t => {
+  const server = await startTestServer();
+  const { repoPath, sha } = await repoWithFiveCommits();
+  t.after(async () => { await server.close(); await cleanup(repoPath); });
+
+  const { body: latest } = await loadScope(server.url, { repoPath });
+  assert.equal(latest.mode, 'lastCommit');
+  assert.ok(
+    !latest.files.some(file => file.path === 'c.txt'),
+    'c.txt was added five commits ago, so the default scope cannot see it'
+  );
+
+  const { body: range } = await loadScope(server.url, { repoPath, base: await sha(5) });
+
+  assert.equal(range.mode, 'range');
+  assert.equal(range.range.commits, 5);
+  assert.deepEqual(
+    range.files.map(file => `${file.status} ${file.path}`).sort(),
+    ['A c.txt', 'D b.txt', 'M a.txt']
+  );
+});
+
+test('a range whose changes cancel out says so instead of looking empty', async t => {
+  // The case the whole feature has to get right. x4 adds a file and x5
+  // removes it, so `git diff x3 x5` is correctly empty -- and an interface
+  // that renders that as "nothing to review" is lying about two commits of
+  // real work.
+  const server = await startTestServer();
+  const { repoPath, sha } = await repoWithFiveCommits();
+  t.after(async () => { await server.close(); await cleanup(repoPath); });
+
+  const { status, body } = await loadScope(server.url, { repoPath, base: await sha(2) });
+
+  assert.equal(status, 200, 'an empty range is an answer, not an error');
+  assert.equal(body.files.length, 0);
+  assert.equal(body.range.commits, 2);
+  assert.match(body.message, /2 commits/);
+  assert.match(body.message, /no net change/);
+});
+
+test('both ends of a range are resolved once, so a moving branch cannot change it', async t => {
+  const server = await startTestServer();
+  const { repoPath, sha } = await repoWithFiveCommits();
+  t.after(async () => { await server.close(); await cleanup(repoPath); });
+
+  const base = await sha(5);
+  const { body } = await loadScope(server.url, { repoPath, base: 'HEAD~5' });
+
+  assert.equal(body.range.base, base, 'stored as a sha, not as the name given');
+  assert.match(body.range.head, /^[0-9a-f]{40}$/);
+});
+
+test('a range that names no real commit is refused with something readable', async t => {
+  const server = await startTestServer();
+  const { repoPath } = await repoWithFiveCommits();
+  t.after(async () => { await server.close(); await cleanup(repoPath); });
+
+  const { status, body } = await loadScope(server.url, { repoPath, base: 'no-such-thing' });
+
+  assert.equal(status, 400);
+  assert.match(body.error, /No commit or branch called "no-such-thing"/);
+});
+
+test('a ref that is really a git option is refused before git sees it', async t => {
+  // simple-git passes arguments as an array, so there is no shell to escape
+  // -- but git itself reads a leading dash as an option, and `git diff`
+  // takes `--output=`. Refs do not start with a dash, so this costs nothing.
+  const server = await startTestServer();
+  const { repoPath } = await repoWithFiveCommits();
+  t.after(async () => { await server.close(); await cleanup(repoPath); });
+
+  const { status, body } = await loadScope(server.url, {
+    repoPath,
+    base: '--output=/tmp/should-not-exist'
+  });
+
+  assert.equal(status, 400);
+  assert.match(body.error, /does not look like a commit or branch/);
+  assert.equal(fsSync.existsSync('/tmp/should-not-exist'), false);
+});
+
+test('file content and diffs in a range come from the range, not from HEAD', async t => {
+  const server = await startTestServer();
+  const { repoPath, sha } = await repoWithFiveCommits();
+  t.after(async () => { await server.close(); await cleanup(repoPath); });
+
+  const { body } = await loadScope(server.url, { repoPath, base: await sha(5), head: await sha(2) });
+
+  assert.equal(body.mode, 'range');
+  const file = await (await fetch(`${server.url}/api/file/${body.repoId}/a.txt`)).json();
+  const at = type => file.diffLines.filter(line => line.type === type).map(line => line.content);
+
+  // a.txt reads "one" at x1 and "three" at x3. A combined diff of x1..x3
+  // shows the two ends and not the "two" it passed through on the way --
+  // which is exactly what makes it a review of the range rather than of
+  // each commit in turn.
+  assert.deepEqual(at('delete'), ['one']);
+  assert.deepEqual(at('add'), ['three']);
+});
+
+test('the range is saved with the review, so an export can describe it', async t => {
+  const server = await startTestServer();
+  const { repoPath, sha } = await repoWithFiveCommits();
+  t.after(async () => { await server.close(); await cleanup(repoPath); });
+
+  const { body } = await loadScope(server.url, { repoPath, base: await sha(5) });
+
+  await fetch(`${server.url}/api/save-comments`, {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({
+      repoId: body.repoId,
+      comments: [{ file: 'a.txt', line: 1, lineContent: 'three', text: 'why' }]
+    })
+  });
+
+  const envelope = JSON.parse(
+    await fs.readFile(path.join(server.reviewsDir, commentsFilename(repoPath)), 'utf-8')
+  );
+
+  assert.equal(envelope.mode, 'range');
+  assert.equal(envelope.range.commits, 5);
+  assert.equal(envelope.range.base, body.range.base);
+});

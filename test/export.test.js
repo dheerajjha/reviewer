@@ -291,3 +291,29 @@ test('a review file written before the mode was recorded still exports', async (
   await cleanup(repo);
   await cleanup(dir);
 });
+
+test('an exported range review still says what it compared', async () => {
+  const dir = await reviewsDir();
+  const repo = await createTempRepo();
+  await writeFiles(repo, { 'src/auth.js': 'let a\n' });
+  await commitAll(repo, 'init');
+
+  await fs.writeFile(
+    path.join(dir, commentsFilename(repo)),
+    JSON.stringify({
+      repoPath: repo,
+      mode: 'range',
+      range: { base: '5ef1109', head: 'ff92a86', commits: 4 },
+      comments: [COMMENT]
+    })
+  );
+
+  const document = await loadReviewDocument(dir, repo);
+
+  assert.equal(document.mode, 'range');
+  assert.equal(document.range.commits, 4);
+  assert.match(formatPrompt(document), /between 5ef1109 and ff92a86 \(4 commits\)/);
+
+  await cleanup(repo);
+  await cleanup(dir);
+});

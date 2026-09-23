@@ -121,9 +121,9 @@ function createApp(options = {}) {
     const git = gitFactory(session.repoPath);
     const absolutePath = resolveRepoFile(session.repoPath, filePath);
 
-    if (session.mode === 'lastCommit') {
+    if (session.range) {
       try {
-        return await git.show([`HEAD:${filePath}`]);
+        return await git.show([`${session.range.head}:${filePath}`]);
       } catch {
         return await fs.readFile(absolutePath, 'utf-8').catch(() => '');
       }
@@ -198,13 +198,99 @@ function createApp(options = {}) {
   }
 
   async function diffForFile(git, session, filePath) {
-    if (session.mode === 'lastCommit') {
-      return git.diff(['HEAD~1', 'HEAD', '--', filePath]);
+    if (session.range) {
+      return git.diff([session.range.base, session.range.head, '--', filePath]);
     }
     if (!(await hasCommits(git))) {
       return '';
     }
     return git.diff(['HEAD', '--', filePath]);
+  }
+
+  /**
+   * A ref safe to hand to git as an argument.
+   *
+   * simple-git passes arguments as an array rather than through a shell, so
+   * there is no quoting to get wrong -- but a value beginning with `-` is
+   * still read by git as an option rather than as a ref, and
+   * `--output=/somewhere` is a real thing to hand `git diff`. Refs do not
+   * begin with a dash, so refusing one costs nothing.
+   *
+   * @param {string} ref
+   * @returns {boolean}
+   */
+  function looksLikeRef(ref) {
+    return ref.length > 0 && ref.length <= 255 && !ref.startsWith('-');
+  }
+
+  /**
+   * Turn two refs into the range a review is of.
+   *
+   * Both are resolved to commit SHAs here, once, and the session carries
+   * those rather than the names. A branch that moves under a review in
+   * progress would otherwise change what the review is of halfway through,
+   * and the comments already written would silently be about a diff that no
+   * longer exists.
+   *
+   * @param {import('simple-git').SimpleGit} git
+   * @param {string} base
+   * @param {string} head
+   * @returns {Promise<import('./lib/sessions').ReviewRange>}
+   * @throws {Error} with a message meant for the page, when a ref will not resolve
+   */
+  async function resolveRange(git, base, head) {
+    for (const [label, ref] of [['base', base], ['head', head]]) {
+      if (!looksLikeRef(ref)) {
+        throw new Error(`That ${label} does not look like a commit or branch.`);
+      }
+    }
+
+    const resolve = async (label, ref) => {
+      try {
+        return (await git.revparse([`${ref}^{commit}`])).trim();
+      } catch {
+        throw new Error(`No commit or branch called "${ref}" in this repository.`);
+      }
+    };
+
+    const baseSha = await resolve('base', base);
+    const headSha = await resolve('head', head);
+
+    // `base..head` counts what head has and base does not, which is the
+    // number a reviewer means by "how many commits am I looking at". It is
+    // not symmetric, and it is not the same as the file count -- a range
+    // whose changes cancel out has commits and no files, which is the whole
+    // reason this number is reported.
+    const commits = Number(
+      (await git.raw(['rev-list', '--count', `${baseSha}..${headSha}`])).trim()
+    );
+
+    return { base: baseSha, head: headSha, commits: Number.isFinite(commits) ? commits : 0 };
+  }
+
+  /**
+   * What to tell the reviewer about a range they just opened.
+   *
+   * The empty case is the one that matters. `git diff x3 x5` over a file
+   * added in x4 and deleted in x5 is correctly empty, and an interface that
+   * renders that as "no changes" is saying something false about two commits
+   * of real work. So the commit count leads, and the absence of files is
+   * described rather than left as a blank screen.
+   *
+   * @param {import('./lib/sessions').ReviewRange} range
+   * @param {number} fileCount
+   * @returns {string}
+   */
+  function describeRange(range, fileCount) {
+    const commits = `${range.commits} commit${range.commits === 1 ? '' : 's'}`;
+
+    if (fileCount === 0) {
+      return range.commits === 0
+        ? 'Those two commits are the same, so there is nothing between them.'
+        : `${commits}, and no net change between the two ends — every change in them was undone again inside the range.`;
+    }
+
+    return `${commits}, ${fileCount} changed file${fileCount === 1 ? '' : 's'} between the two ends`;
   }
 
   /** Liveness probe, and a count of how many repositories are open. */
@@ -338,6 +424,7 @@ function createApp(options = {}) {
       // Resolve to the root of the working tree before anything is keyed on
       // this path. A subdirectory passes `checkIsRepo()` quite happily and
       // then produces a file list whose diffs are all empty; see lib/repo.js.
+      const { base, head } = req.body ?? {};
       const root = await repoRoot(repoPath, gitFactory);
       if (!root) {
         return res.status(400).json({ error: 'Not a valid git repository' });
@@ -345,27 +432,51 @@ function createApp(options = {}) {
 
       const git = gitFactory(root);
 
-      let files = collectWorkingChanges(await git.status());
-      let mode = 'working';
-      let message = `Found ${files.length} changed file(s)`;
+      let files;
+      let mode;
+      let range = null;
+      let message;
 
-      // A clean tree has nothing to review, so fall back to the last commit.
-      if (files.length === 0) {
+      if (base !== undefined && base !== null && `${base}`.trim() !== '') {
+        // An explicit range. Nothing falls back to anything here: someone who
+        // asked for x1..x3 and is silently shown their working tree instead
+        // has been told a lie about what they are reviewing.
         try {
-          const commitFiles = collectCommitChanges(await git.diffSummary(['HEAD~1', 'HEAD']));
-          if (commitFiles.length > 0) {
-            files = commitFiles;
-            mode = 'lastCommit';
-            message = `No working directory changes. Loaded last commit with ${files.length} changed file(s)`;
-          }
+          range = await resolveRange(git, `${base}`.trim(), `${head ?? 'HEAD'}`.trim());
         } catch (error) {
-          // A repository with no commits, or only one, has no parent to diff
-          // against. An empty file list is the correct answer there.
-          console.error('Error loading last commit:', error.message);
+          return res.status(400).json({ error: error.message });
+        }
+
+        files = collectCommitChanges(await git.diffSummary([range.base, range.head]));
+        mode = 'range';
+        message = describeRange(range, files.length);
+      } else {
+        files = collectWorkingChanges(await git.status());
+        mode = 'working';
+        message = `Found ${files.length} changed file(s)`;
+
+        // A clean tree has nothing to review, so fall back to the last commit.
+        if (files.length === 0) {
+          try {
+            const lastCommit = await resolveRange(git, 'HEAD~1', 'HEAD');
+            const commitFiles = collectCommitChanges(
+              await git.diffSummary([lastCommit.base, lastCommit.head])
+            );
+            if (commitFiles.length > 0) {
+              files = commitFiles;
+              mode = 'lastCommit';
+              range = lastCommit;
+              message = `No working directory changes. Loaded last commit with ${files.length} changed file(s)`;
+            }
+          } catch (error) {
+            // A repository with no commits, or only one, has no parent to diff
+            // against. An empty file list is the correct answer there.
+            console.error('Error loading last commit:', error.message);
+          }
         }
       }
 
-      const repoId = sessions.create(root, mode);
+      const repoId = sessions.create(root, mode, range);
       // stderr, not stdout. `reviewer | claude -p ...` puts the finished
       // review on stdout, and anything else written there lands in the middle
       // of it. Progress is for the person watching; stdout is for the pipe.
@@ -380,7 +491,7 @@ function createApp(options = {}) {
 
       // `repoPath` in the response is the resolved root, not what was asked
       // for, so the page can show which repository it actually opened.
-      res.json({ repoId, files, repoPath: root, mode, message });
+      res.json({ repoId, files, repoPath: root, mode, range, message });
     } catch (error) {
       console.error('Load repo error:', error);
       res.status(500).json({ error: error.message });
@@ -472,6 +583,7 @@ function createApp(options = {}) {
         repoPath: session.repoPath,
         lastUpdated: new Date().toISOString(),
         mode: session.mode,
+        range: session.range,
         comments: normalized
       };
 
@@ -535,7 +647,8 @@ function createApp(options = {}) {
         generatedAt,
         head,
         branch,
-        mode: session.mode
+        mode: session.mode,
+        range: session.range
       });
       const documentFilename = filename.replace(/\.txt$/, '.json');
 

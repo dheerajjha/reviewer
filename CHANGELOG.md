@@ -6,6 +6,28 @@ adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
 ## [Unreleased]
 
+### Added
+
+- **Review a range of commits, not just the last one.** A "Compare from" box
+  in the header takes a commit, tag or branch and reloads the review as a
+  single combined diff between that point and `HEAD`
+  ([#76](https://github.com/dheerajjha/reviewer/issues/76)). Work introduced
+  several commits ago is now reviewable; before this, anything before `HEAD~1`
+  was outside the review and nothing said so.
+
+  Both refs are resolved to SHAs once, when the range is opened, so a branch
+  that moves during a review cannot change what the review is of underneath
+  it.
+
+  The scope bar reports how many commits the range covers, and keeps saying so
+  when the file list is empty. A file added and deleted inside a range
+  correctly produces no diff, and "2 commits, and no net change" is a very
+  different statement from "nothing to review" — the interface now makes that
+  distinction instead of showing a blank list.
+
+  The agent briefing and the exported document carry the range too: `range` is
+  `{ base, head, commits }`, omitted rather than null when there is no range.
+
 ## [2.9.1] - 2026-09-22
 
 ### Fixed
