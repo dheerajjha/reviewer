@@ -6,6 +6,27 @@ adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
 ## [Unreleased]
 
+### Added
+
+- **Pick the commit to review back to, instead of typing a SHA.** The range
+  control is now a dropdown of recent commits — subject line and when each
+  landed — beside the text box, which stays for a branch, a tag or `HEAD~5`.
+  Nobody knows the SHA of the commit they want to review back to, and asking
+  for one sent you to another window to run `git log` in order to use a tool
+  whose point is not having to.
+
+  Relabelled **Changes since**, because `base..HEAD` does not include the
+  base commit's own changes and "compare from x1" invited the reading that
+  x1 was in the diff.
+
+  The newest commit is not offered: "changes since HEAD" is either nothing or
+  the working tree, both of which are what the default scope already shows.
+
+### Fixed
+
+- The README never described the range control at all — it shipped in 2.10.0
+  documented only in this file.
+
 ## [2.10.0] - 2026-09-23
 
 ### Added

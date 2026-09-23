@@ -156,19 +156,77 @@ function renderScope(data) {
   bar.classList.remove('hidden');
   reset.classList.toggle('hidden', data.mode !== 'range');
 
+  const select = document.getElementById('compareSelect');
+
   if (data.mode === 'range' && data.range) {
     const { base, head, commits } = data.range;
     label.textContent =
       `Comparing ${shortSha(base)} \u2192 ${shortSha(head)} \u2014 ` +
       `${commits} commit${commits === 1 ? '' : 's'}, shown as one combined diff`;
-    document.getElementById('compareBase').value = shortSha(base);
+    // Only if the base is one of the offered commits. A range opened by
+    // typing `HEAD~5` or a branch name has no matching option, and leaving
+    // the picker on its placeholder is honest -- the scope bar above already
+    // says exactly what is being compared.
+    select.value = [...select.options].some(option => option.value === base) ? base : '';
     return;
   }
 
   label.textContent = data.mode === 'lastCommit'
     ? 'Reviewing the last commit'
     : 'Reviewing uncommitted changes';
+  select.value = '';
   document.getElementById('compareBase').value = '';
+}
+
+/**
+ * Fill the commit picker for the open repository.
+ *
+ * The newest commit is deliberately not offered. "Changes since HEAD" is
+ * either nothing or the working tree depending on how you squint, and both
+ * of those are already what "Back to latest" gives you -- so listing it
+ * would be offering a choice that cannot do anything useful.
+ *
+ * A failure here is silent on purpose: the text box next to it still works,
+ * and a repository whose history will not list is not a reason to refuse to
+ * review it.
+ */
+async function loadCommitOptions(repoId) {
+  const select = document.getElementById('compareSelect');
+
+  try {
+    const response = await fetch(`${API_BASE}/commits/${repoId}`);
+    if (!response.ok) return;
+
+    const { commits } = await response.json();
+    const options = commits.slice(1);
+
+    select.innerHTML = '';
+    if (options.length === 0) {
+      select.appendChild(new Option('No earlier commits', ''));
+      select.disabled = true;
+      return;
+    }
+
+    select.disabled = false;
+    select.appendChild(new Option('Pick a commit…', ''));
+    for (const commit of options) {
+      // The subject is what a person recognises; the sha is there to
+      // disambiguate two commits with the same message, which is common
+      // enough in a branch that has been rebased.
+      select.appendChild(new Option(`${commit.short} · ${commit.subject} · ${commit.when}`, commit.sha));
+    }
+  } catch {
+    /* the text box beside it is the fallback */
+  }
+}
+
+/** Compare from whatever was chosen in the picker. */
+function compareFromSelection() {
+  const base = document.getElementById('compareSelect').value;
+  if (!base) return;
+
+  document.getElementById('compareBase').value = '';
+  loadRepo({ base });
 }
 
 /** Reload the repository as a range starting at whatever was typed. */
@@ -186,6 +244,7 @@ function compareFrom() {
 /** Back to the default scope: uncommitted changes, or the last commit. */
 function resetScope() {
   document.getElementById('compareBase').value = '';
+  document.getElementById('compareSelect').value = '';
   loadRepo();
 }
 
@@ -230,6 +289,9 @@ async function loadRepo(scope = {}) {
       setRepoButton(data.repoPath);
     }
 
+    // Before renderScope, which needs the options present to be able to
+    // select the current base among them.
+    await loadCommitOptions(data.repoId);
     renderScope(data);
 
     if (data.files.length === 0) {

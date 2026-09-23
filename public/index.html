@@ -58,11 +58,17 @@
     <div id="scopeBar" class="scope-bar hidden">
       <span id="scopeLabel" class="scope-label"></span>
       <div class="scope-compare">
-        <label for="compareBase">Compare from</label>
+        <!-- "since", not "from": `base..HEAD` does not include base's own
+             changes, and a picker that says "compare from x1" invites the
+             reading that x1 is in the diff. -->
+        <label for="compareSelect">Changes since</label>
+        <select id="compareSelect" onchange="compareFromSelection()" aria-label="Review everything after this commit">
+          <option value="">Pick a commit…</option>
+        </select>
         <input
           type="text"
           id="compareBase"
-          placeholder="commit, tag or branch"
+          placeholder="or a branch, tag or ref"
           spellcheck="false"
           autocomplete="off"
           value="">

@@ -62,6 +62,12 @@ class FileNotFoundError extends Error {
  *   leaves before deciding it is not coming back.
  * @returns {import('express').Express}
  */
+// How far back the range picker offers to go. Long enough to cover the work
+// someone is plausibly still reviewing, short enough that the list is a list
+// rather than the whole history -- anything older is still reachable by
+// typing a ref, which is what the text box is for.
+const COMMIT_LIST_LIMIT = 30;
+
 function createApp(options = {}) {
   const {
     reviewsDir = resolveReviewsDir(),
@@ -292,6 +298,58 @@ function createApp(options = {}) {
 
     return `${commits}, ${fileCount} changed file${fileCount === 1 ? '' : 's'} between the two ends`;
   }
+
+  /**
+   * Recent commits, so a range can be picked instead of typed.
+   *
+   * Nobody knows the SHA of the commit they want to review back to, and
+   * asking for one is asking the reviewer to go and run `git log` in another
+   * window to use a tool whose whole point is not having to.
+   *
+   * Each entry is what a person recognises a commit by -- the subject line
+   * and when it landed -- with the SHA carried alongside rather than being
+   * the thing they have to read.
+   *
+   * `%x00` separates the fields because a commit subject can contain
+   * anything a person can type, including whatever delimiter looked safe.
+   *
+   * @param {import('simple-git').SimpleGit} git
+   * @param {number} limit
+   */
+  async function recentCommits(git, limit) {
+    const raw = await git.raw([
+      'log', `--max-count=${limit}`, '--format=%H%x00%h%x00%s%x00%cr'
+    ]);
+
+    return raw
+      .split('\n')
+      .filter(line => line.trim() !== '')
+      .map(line => {
+        const [sha, short, subject, when] = line.split('\u0000');
+        return { sha, short, subject, when };
+      });
+  }
+
+  /**
+   * The commits of an open repository, newest first.
+   *
+   * Behind a session id like the file endpoints rather than taking a path:
+   * this reads history out of a repository, and the session is what says
+   * which repository the caller has already been granted.
+   */
+  app.get('/api/commits/:repoId', async (req, res) => {
+    try {
+      const session = requireSession(res, req.params.repoId);
+      if (!session) return;
+
+      const commits = await recentCommits(gitFactory(session.repoPath), COMMIT_LIST_LIMIT);
+      res.json({ commits });
+    } catch (error) {
+      // A repository with no commits is not an error, it is an empty list.
+      console.error('Commit list error:', error.message);
+      res.json({ commits: [] });
+    }
+  });
 
   /** Liveness probe, and a count of how many repositories are open. */
   app.get('/api/health', (req, res) => {

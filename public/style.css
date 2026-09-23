@@ -1935,3 +1935,32 @@ button:disabled {
     width: 120px;
   }
 }
+
+/* The picker carries the common case; the text box beside it carries
+ * everything else — a branch, a tag, `HEAD~5`, a sha from somewhere else.
+ * Both stay visible rather than one hiding behind a mode, because a control
+ * you cannot see is a feature people believe is missing. */
+.scope-compare select {
+  max-width: 320px;
+  font-size: 12px;
+  padding: 4px 6px;
+  border: 1px solid #d1d5da;
+  border-radius: 6px;
+  background: #fff;
+  color: #24292e;
+}
+
+.scope-compare select:disabled {
+  color: #6a737d;
+  background: #f3f4f6;
+}
+
+@media (max-width: 720px) {
+  .scope-compare {
+    flex-wrap: wrap;
+  }
+
+  .scope-compare select {
+    max-width: 100%;
+  }
+}
