@@ -1583,3 +1583,189 @@ test('a repository with one commit lists it and offers nothing to compare agains
 
   assert.equal(commits.length, 1);
 });
+
+// --- comparing branches ----------------------------------------------------
+
+/**
+ * main, and feature/auth cut from it. Since the cut: feature/auth has three
+ * commits, and main has moved on by one that touches a file feature/auth
+ * never does. feature/billing is a second branch off the same point, so two
+ * branches can be compared with neither checked out.
+ */
+async function repoWithDivergedBranches() {
+  const repoPath = await createTempRepo();
+  await git(repoPath, ['checkout', '-q', '-b', 'main']);
+  await commitFiles(repoPath, { 'src/auth.js': 'export function login() {}\n', 'src/config.js': 'PORT = 3000\n' }, 'skeleton');
+  await git(repoPath, ['checkout', '-q', '-b', 'feature/auth']);
+  await commitFiles(repoPath, { 'src/auth.js': 'export function login(p) {}\n' }, 'take a password');
+  await commitFiles(repoPath, { 'src/check.js': 'export const check = () => true;\n' }, 'add a check');
+  await commitFiles(repoPath, { 'src/auth.js': 'export function login(p) { return check(p); }\n' }, 'use the check');
+  await git(repoPath, ['checkout', '-q', 'main']);
+  await commitFiles(repoPath, { 'src/config.js': 'PORT = 8080\n' }, 'move port');
+  await git(repoPath, ['checkout', '-q', '-b', 'feature/billing', 'main~1']);
+  await commitFiles(repoPath, { 'src/billing.js': 'export const charge = () => true;\n' }, 'add billing');
+  await git(repoPath, ['checkout', '-q', 'feature/auth']);
+  return repoPath;
+}
+
+const statusesOf = files => files.map(file => `${file.status} ${file.path}`).sort();
+
+test('a branch compared with a base that has moved on shows only the branch\'s own work', async t => {
+  // The bug this replaces: a plain two-ended diff of main and feature/auth
+  // includes main's newer "move port" commit *reversed*, so the review showed
+  // the feature author changing PORT back from 8080 to 3000 -- a change they
+  // never made, sitting in the file list for someone to comment on.
+  const server = await startTestServer();
+  const repoPath = await repoWithDivergedBranches();
+  t.after(async () => { await server.close(); await cleanup(repoPath); });
+
+  const { body } = await loadScope(server.url, { repoPath, base: 'main' });
+
+  assert.deepEqual(statusesOf(body.files), ['A src/check.js', 'M src/auth.js']);
+  assert.equal(body.range.commits, 3, 'the three commits feature/auth has');
+  assert.equal(body.range.behind, 1, 'and the one on main it does not, reported rather than hidden');
+  assert.notEqual(body.range.from, body.range.base, 'diffed from the merge base, not from main\'s tip');
+});
+
+test('on straight-line history the merge base is the base, so nothing changes', async t => {
+  const server = await startTestServer();
+  const { repoPath, sha } = await repoWithFiveCommits();
+  t.after(async () => { await server.close(); await cleanup(repoPath); });
+
+  const { body } = await loadScope(server.url, { repoPath, base: await sha(5) });
+
+  assert.equal(body.range.from, body.range.base);
+  assert.equal(body.range.behind, 0);
+});
+
+test('two branches can be compared with neither of them checked out', async t => {
+  const server = await startTestServer();
+  const repoPath = await repoWithDivergedBranches();
+  t.after(async () => { await server.close(); await cleanup(repoPath); });
+
+  const { body } = await loadScope(server.url, { repoPath, base: 'main', head: 'feature/billing' });
+
+  assert.deepEqual(statusesOf(body.files), ['A src/billing.js']);
+  assert.equal(body.range.headName, 'feature/billing');
+});
+
+test('swapping the ends shows what the base has that the branch does not', async t => {
+  const server = await startTestServer();
+  const repoPath = await repoWithDivergedBranches();
+  t.after(async () => { await server.close(); await cleanup(repoPath); });
+
+  const { body } = await loadScope(server.url, { repoPath, base: 'feature/auth', head: 'main' });
+
+  assert.deepEqual(statusesOf(body.files), ['M src/config.js']);
+  assert.equal(body.range.commits, 1);
+  assert.equal(body.range.behind, 3);
+});
+
+test('a range answers in the names that were asked for, with HEAD named as its branch', async t => {
+  // Nobody picked 3eb57959; they picked main. A scope bar that answers in
+  // SHAs has translated the question into one nobody asked.
+  const server = await startTestServer();
+  const repoPath = await repoWithDivergedBranches();
+  t.after(async () => { await server.close(); await cleanup(repoPath); });
+
+  const { body } = await loadScope(server.url, { repoPath, base: 'main' });
+
+  assert.equal(body.range.baseName, 'main');
+  assert.equal(body.range.headName, 'feature/auth', 'HEAD, named as the branch it is');
+  assert.match(body.message, /^main → feature\/auth: 3 commits, 2 changed files$/);
+});
+
+test('a branch with nothing the base lacks says so, and suggests the other way round', async t => {
+  const server = await startTestServer();
+  const repoPath = await repoWithDivergedBranches();
+  t.after(async () => { await server.close(); await cleanup(repoPath); });
+
+  // main~1 is an ancestor of feature/auth: it has nothing feature/auth lacks.
+  const { body } = await loadScope(server.url, { repoPath, base: 'feature/auth', head: 'main~1' });
+
+  assert.equal(body.files.length, 0);
+  assert.equal(body.range.commits, 0);
+  assert.ok(body.range.behind > 0);
+  assert.match(body.message, /has no commits that feature\/auth does not already have/);
+});
+
+test('the last commit badges an addition-only edit as Modified', async t => {
+  // End to end, through the real diff: the last commit on feature/auth adds
+  // to a file that already existed, and used to be badged "A".
+  const server = await startTestServer();
+  const repoPath = await repoWithDivergedBranches();
+  t.after(async () => { await server.close(); await cleanup(repoPath); });
+
+  const { body } = await loadScope(server.url, { repoPath });
+
+  assert.equal(body.mode, 'lastCommit');
+  assert.deepEqual(statusesOf(body.files), ['M src/auth.js']);
+});
+
+test('full context in a range comes from the compared branch, not the checkout', async t => {
+  // The working tree used to be the fallback. With the head of a range able
+  // to be another branch, that would show feature/auth's file under
+  // feature/billing's name.
+  const server = await startTestServer();
+  const repoPath = await repoWithDivergedBranches();
+  t.after(async () => { await server.close(); await cleanup(repoPath); });
+
+  const { body } = await loadScope(server.url, { repoPath, base: 'main', head: 'feature/billing' });
+  const full = await (await fetch(`${server.url}/api/file-full/${body.repoId}/src/billing.js`)).json();
+
+  assert.equal(full.lines[0], 'export const charge = () => true;');
+});
+
+test('full context of a file deleted in a range shows what was deleted', async t => {
+  const server = await startTestServer();
+  const { repoPath, sha } = await repoWithFiveCommits();
+  t.after(async () => { await server.close(); await cleanup(repoPath); });
+
+  // b.txt is deleted inside x1..x5.
+  const { body } = await loadScope(server.url, { repoPath, base: await sha(5) });
+  assert.ok(body.files.some(file => file.path === 'b.txt' && file.status === 'D'));
+
+  const full = await (await fetch(`${server.url}/api/file-full/${body.repoId}/b.txt`)).json();
+  assert.equal(full.lines[0], 'keep', 'the deleted text, not an empty file');
+});
+
+test('the refs list offers branches, current one marked, newest activity first', async t => {
+  const server = await startTestServer();
+  const repoPath = await repoWithDivergedBranches();
+  t.after(async () => { await server.close(); await cleanup(repoPath); });
+
+  await git(repoPath, ['tag', 'v1.0', 'main~1']);
+  await git(repoPath, ['update-ref', 'refs/remotes/origin/main', 'main']);
+  await git(repoPath, ['symbolic-ref', 'refs/remotes/origin/HEAD', 'refs/remotes/origin/main']);
+
+  const { body } = await loadScope(server.url, { repoPath });
+  const refs = await (await fetch(`${server.url}/api/refs/${body.repoId}`)).json();
+
+  assert.equal(refs.current, 'feature/auth');
+  assert.deepEqual(refs.branches.map(b => b.name).sort(), ['feature/auth', 'feature/billing', 'main']);
+  assert.deepEqual(refs.remotes.map(r => r.name), ['origin/main'], 'origin/HEAD is a pointer, not a branch');
+  assert.deepEqual(refs.tags.map(tag => tag.name), ['v1.0']);
+  assert.ok(refs.commits.length > 0);
+  assert.match(refs.branches[0].sha, /^[0-9a-f]{40}$/);
+  assert.ok(refs.branches[0].when.length > 0);
+});
+
+test('the refs list reports a detached HEAD as no current branch, not as one called HEAD', async t => {
+  const server = await startTestServer();
+  const repoPath = await repoWithDivergedBranches();
+  t.after(async () => { await server.close(); await cleanup(repoPath); });
+
+  await git(repoPath, ['checkout', '-q', '--detach', 'main']);
+  const { body } = await loadScope(server.url, { repoPath });
+  const refs = await (await fetch(`${server.url}/api/refs/${body.repoId}`)).json();
+
+  assert.equal(refs.current, null);
+});
+
+test('the refs list needs a session', async t => {
+  const server = await startTestServer();
+  t.after(async () => { await server.close(); });
+
+  const response = await fetch(`${server.url}/api/refs/not-a-session`);
+  assert.equal(response.status, 400);
+});
