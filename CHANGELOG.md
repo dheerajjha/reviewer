@@ -6,6 +6,8 @@ adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
 ## [Unreleased]
 
+## [2.12.0] - 2026-09-23
+
 ### Added
 
 - **Compare any two branches, the way a pull request does.** The range control
@@ -65,11 +67,13 @@ adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
   `role="status"`.
 - The README's HTTP API table was missing `/api/alive` and `/api/commits`.
 
-- A lifecycle test raced a 20ms reconnect against a 60ms grace window and
-  failed once on a loaded macOS runner. The margins are wide now and the
-  reload test reconnects immediately rather than after a hand-picked delay —
-  a browser reloading does not pause politely first, so the delay was never
-  part of what the test was checking.
+- Two lifecycle tests failed intermittently on macOS. The cause was the test
+  helper, not the server: it dropped each simulated tab's `Response`, and
+  Node's fetch closes the socket of a response that is garbage-collected
+  unconsumed — which the server cannot tell apart from a tab closing. The
+  first failure was put down to a timing race and the margins were widened;
+  that was wrong, and did not help. Under a forced-GC storm the old helper
+  fails 3 of the 6 lifecycle tests and the fixed one passes all 6.
 
 ## [2.11.0] - 2026-09-23
 
@@ -684,7 +688,8 @@ Initial release: Electron desktop app and web mode for reviewing local git
 changes with inline comments, threaded follow-ups, persistent storage, and a
 GitHub-style diff view.
 
-[Unreleased]: https://github.com/dheerajjha/reviewer/compare/v2.11.0...HEAD
+[Unreleased]: https://github.com/dheerajjha/reviewer/compare/v2.12.0...HEAD
+[2.12.0]: https://github.com/dheerajjha/reviewer/compare/v2.11.0...v2.12.0
 [2.11.0]: https://github.com/dheerajjha/reviewer/compare/v2.10.0...v2.11.0
 [2.10.0]: https://github.com/dheerajjha/reviewer/compare/v2.9.1...v2.10.0
 [2.9.1]: https://github.com/dheerajjha/reviewer/compare/v2.9.0...v2.9.1
