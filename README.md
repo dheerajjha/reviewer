@@ -3,7 +3,7 @@
 [![CI](https://github.com/dheerajjha/reviewer/actions/workflows/ci.yml/badge.svg)](https://github.com/dheerajjha/reviewer/actions/workflows/ci.yml)
 [![License: MIT](https://img.shields.io/badge/license-MIT-blue.svg)](LICENSE)
 [![Node](https://img.shields.io/badge/node-%3E%3D18-brightgreen.svg)](package.json)
-[![Tests](https://img.shields.io/badge/tests-310-brightgreen.svg)](test/)
+[![Tests](https://img.shields.io/badge/tests-314-brightgreen.svg)](test/)
 [![Dependencies](https://img.shields.io/badge/dependencies-3-brightgreen.svg)](package.json)
 
 When an agent writes the code, reading it becomes the bottleneck — and the tool
@@ -140,6 +140,35 @@ is nothing to configure:
 | Uncommitted changes present | Your working directory against `HEAD` |
 | Working directory clean | The last commit against its parent |
 | No commits yet | Every tracked and untracked file, as wholly new |
+
+### Reviewing further back than the last commit
+
+Those defaults cover the common case and nothing else needs setting up, but a
+branch you have been working on for a day is several commits deep, and the
+default scope only ever shows you the most recent one.
+
+**Changes since** in the header takes any earlier commit and reloads the review
+as a single combined diff up to `HEAD`. Pick one from the dropdown — recent
+commits by subject line and when they landed, so you do not have to go and find
+a SHA — or type a branch, a tag, or something like `HEAD~5` in the box beside
+it for anything the list does not reach.
+
+The commit the range starts from is not itself included: "changes since x1"
+means everything after x1, the same as `x1..HEAD`.
+
+The bar keeps saying how many commits the range covers, and it keeps saying it
+when there are no files:
+
+```
+Comparing 86b28f11 → 27668114 — 2 commits, shown as one combined diff
+2 commits, and no net change between the two ends — every change in them was
+undone again inside the range.
+```
+
+That is a real answer, not an empty screen. A file added in one commit and
+deleted in a later one is correctly absent from a diff of the two ends, and
+"no net change across 2 commits" is a different statement from "nothing to
+review".
 
 Modified, added, deleted, renamed, and binary files are all listed, each marked
 with its git status letter. Deleted lines are commentable too — the most useful
@@ -294,7 +323,7 @@ rather than a public issue.
 
 ```bash
 npm install           # 3 dependencies, no build step, ~6MB
-npm test              # 310 tests
+npm test              # 314 tests
 npm run test:watch
 npm run test:coverage
 ```

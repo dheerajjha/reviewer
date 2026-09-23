@@ -1517,3 +1517,61 @@ test('the range is saved with the review, so an export can describe it', async t
   assert.equal(envelope.range.commits, 5);
   assert.equal(envelope.range.base, body.range.base);
 });
+
+test('the commit list is what a person recognises, newest first', async t => {
+  const server = await startTestServer();
+  const { repoPath } = await repoWithFiveCommits();
+  t.after(async () => { await server.close(); await cleanup(repoPath); });
+
+  const { body } = await loadScope(server.url, { repoPath });
+  const { commits } = await (await fetch(`${server.url}/api/commits/${body.repoId}`)).json();
+
+  assert.deepEqual(commits.map(c => c.subject), ['x5', 'x4', 'x3-delete', 'x3', 'x2', 'x1']);
+  assert.match(commits[0].sha, /^[0-9a-f]{40}$/);
+  assert.equal(commits[0].short, commits[0].sha.slice(0, commits[0].short.length));
+  assert.ok(commits[0].when.length > 0, 'a relative date, because nobody reads a timestamp');
+});
+
+test('a commit subject containing the field separator does not corrupt the list', async t => {
+  // %x00 rather than a printable delimiter precisely because a subject can
+  // contain anything a person can type. Pick something that would have
+  // broken a naive split.
+  const server = await startTestServer();
+  const repoPath = await createTempRepo();
+  t.after(async () => { await server.close(); await cleanup(repoPath); });
+
+  await commitFiles(repoPath, { 'a.txt': 'one\n' }, 'first');
+  await commitFiles(repoPath, { 'a.txt': 'two\n' }, 'fix: a|b\ttab and | pipe');
+
+  const { body } = await loadScope(server.url, { repoPath });
+  const { commits } = await (await fetch(`${server.url}/api/commits/${body.repoId}`)).json();
+
+  assert.equal(commits[0].subject, 'fix: a|b\ttab and | pipe');
+  assert.match(commits[0].sha, /^[0-9a-f]{40}$/);
+});
+
+test('listing commits needs a session, like the file endpoints', async t => {
+  const server = await startTestServer();
+  t.after(async () => { await server.close(); });
+
+  const response = await fetch(`${server.url}/api/commits/not-a-session`);
+
+  assert.equal(response.status, 400);
+  assert.match((await response.json()).error, /Invalid repository ID/);
+});
+
+test('a repository with one commit lists it and offers nothing to compare against', async t => {
+  // The picker drops the newest entry, so a single-commit repository leaves
+  // it with nothing -- which the page has to handle rather than render an
+  // empty dropdown that looks broken.
+  const server = await startTestServer();
+  const repoPath = await createTempRepo();
+  t.after(async () => { await server.close(); await cleanup(repoPath); });
+
+  await commitFiles(repoPath, { 'a.txt': 'only\n' }, 'just the one');
+
+  const { body } = await loadScope(server.url, { repoPath });
+  const { commits } = await (await fetch(`${server.url}/api/commits/${body.repoId}`)).json();
+
+  assert.equal(commits.length, 1);
+});
