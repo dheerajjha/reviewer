@@ -73,6 +73,11 @@ const COMMIT_LIST_LIMIT = 30;
 // cut are the least recently touched and are still reachable by typing.
 const REF_LIST_LIMIT = 40;
 
+// How many commits the commits list shows. A branch of more than this is a
+// review nobody is doing commit by commit; the list says it is truncated
+// rather than pretending the rest are not there.
+const LOG_LIMIT = 200;
+
 function createApp(options = {}) {
   const {
     reviewsDir = resolveReviewsDir(),
@@ -322,6 +327,90 @@ function createApp(options = {}) {
   }
 
   /**
+   * The range for reviewing commits themselves: one, or an unbroken run.
+   *
+   * Different from comparing two refs. `from` and `to` are both *in* the
+   * review -- clicking one commit means that commit's changes, and
+   * shift-clicking a second means everything from the first through the
+   * second -- so the diff starts at the parent of `from`, not at `from`.
+   * That is what GitHub does when you pick commits inside a pull request, and
+   * what "review commit 3 of 5" has to mean.
+   *
+   * `from` has to come before `to` on one line of history. Two commits on
+   * different branches have no run between them; that is a comparison, and
+   * the compare pickers exist for it.
+   *
+   * @throws {Error} with a message meant for the page
+   */
+  async function resolveCommitRun(git, fromRef, toRef) {
+    for (const [label, ref] of [['first commit', fromRef], ['last commit', toRef]]) {
+      if (!looksLikeRef(ref)) throw new Error(`That ${label} does not look like a commit.`);
+    }
+
+    const resolve = async ref => {
+      try {
+        return (await git.revparse([`${ref}^{commit}`])).trim();
+      } catch {
+        throw new Error(`No commit called "${ref}" in this repository.`);
+      }
+    };
+    const first = await resolve(fromRef);
+    const last = await resolve(toRef);
+
+    // Ancestry through output, not exit code: `merge-base --is-ancestor`
+    // answers only by exiting 1, and simple-git resolves a silent non-zero
+    // exit -- so it reported every pair as ordered, including main before a
+    // branch that main was not an ancestor of. The merge base of an ancestor
+    // and its descendant is the ancestor, and that is checkable.
+    const mergeBase = (await git.raw(['merge-base', first, last]).catch(() => '')).trim();
+    if (mergeBase !== first) {
+      throw new Error(
+        `${first.slice(0, 7)} does not come before ${last.slice(0, 7)} on one line of history, ` +
+        'so there is no run of commits between them. Use Compare to diff two unrelated points.'
+      );
+    }
+
+    // A root commit has no parent. Its "before" is the empty tree, which is
+    // also how `git show` presents a root commit: every file added.
+    let from;
+    let hasParent = true;
+    try {
+      from = (await git.revparse([`${first}^`])).trim();
+    } catch {
+      hasParent = false;
+      from = (await git.raw(['hash-object', '-t', 'tree', '/dev/null'])).trim();
+    }
+
+    const count = Number((await git.raw(['rev-list', '--count', hasParent ? `${from}..${last}` : last, '--'])).trim());
+    const subject = first === last
+      ? (await git.raw(['log', '-1', '--format=%s', last, '--']).catch(() => '')).trim()
+      : null;
+
+    return {
+      kind: 'commits',
+      first,
+      last,
+      base: from,
+      head: last,
+      from,
+      commits: Number.isFinite(count) ? count : 1,
+      behind: 0,
+      baseName: first.slice(0, 7),
+      headName: last.slice(0, 7),
+      ...(subject ? { subject } : {})
+    };
+  }
+
+  /** What to say about a commit or a run of them once loaded. */
+  function describeCommitRun(range, fileCount) {
+    const plural = (n, word) => `${n} ${word}${n === 1 ? '' : 's'}`;
+    const files = fileCount === 0 ? 'no files changed' : plural(fileCount, 'changed file');
+    return range.first === range.last
+      ? `Commit ${range.headName}${range.subject ? `: ${range.subject}` : ''} — ${files}`
+      : `${plural(range.commits, 'commit')}, ${range.baseName} through ${range.headName} — ${files}`;
+  }
+
+  /**
    * The changed files of a range, with the status git gives each one.
    *
    * @param {import('simple-git').SimpleGit} git
@@ -382,9 +471,9 @@ function createApp(options = {}) {
    * @param {import('simple-git').SimpleGit} git
    * @param {number} limit
    */
-  async function recentCommits(git, limit) {
+  async function recentCommits(git, limit, head = 'HEAD') {
     const raw = await git.raw([
-      'log', `--max-count=${limit}`, '--format=%H%x00%h%x00%s%x00%cr'
+      'log', `--max-count=${limit}`, '--format=%H%x00%h%x00%s%x00%cr', head, '--'
     ]);
 
     return raw
@@ -396,13 +485,6 @@ function createApp(options = {}) {
       });
   }
 
-  /**
-   * The commits of an open repository, newest first.
-   *
-   * Behind a session id like the file endpoints rather than taking a path:
-   * this reads history out of a repository, and the session is what says
-   * which repository the caller has already been granted.
-   */
   /**
    * Everything the compare pickers offer: branches, tags and recent commits.
    *
@@ -445,11 +527,18 @@ function createApp(options = {}) {
     };
 
     const current = await git.revparse(['--abbrev-ref', 'HEAD']).then(b => b.trim()).catch(() => null);
+
+    // The commits offered are the history of whatever is being compared, not
+    // always of the checkout: comparing main against feature/billing from a
+    // checkout of feature/auth should offer billing's commits to pick from.
+    const requested = typeof req.query.head === 'string' ? req.query.head.trim() : '';
+    const head = requested && looksLikeRef(requested) ? requested : 'HEAD';
+
     const [branches, remotes, tags, commits] = await Promise.all([
       refList('refs/heads', REF_LIST_LIMIT),
       refList('refs/remotes', REF_LIST_LIMIT),
       refList('refs/tags', REF_LIST_LIMIT),
-      recentCommits(git, COMMIT_LIST_LIMIT).catch(() => [])
+      recentCommits(git, COMMIT_LIST_LIMIT, head).catch(() => [])
     ]);
 
     res.json({
@@ -463,6 +552,77 @@ function createApp(options = {}) {
     });
   });
 
+  /**
+   * The commits a review can be narrowed to, one at a time or as a run.
+   *
+   * With a base: the commits the comparison is made of -- what `base..head`
+   * has -- oldest first, because a branch reads as a story in the order it
+   * was written, and stepping through it commit by commit is the point.
+   * Without one: the recent history of `head`, newest first, the way `git
+   * log` reads, because there is no story there, only "how far back".
+   *
+   * Each commit carries its full message. The subject is what fits in a
+   * list, but the body is often where the author explains the change, and a
+   * reviewer looking at one commit should not have to leave the tool to read
+   * why it was made.
+   *
+   * Records are split on %x1e rather than on newlines, because a commit body
+   * is made of newlines.
+   */
+  app.get('/api/log/:repoId', async (req, res) => {
+    const session = requireSession(res, req.params.repoId);
+    if (!session) return;
+
+    const git = gitFactory(session.repoPath);
+    const pick = name => (typeof req.query[name] === 'string' ? req.query[name].trim() : '');
+    const head = pick('head') || 'HEAD';
+    const base = pick('base');
+
+    for (const ref of base ? [base, head] : [head]) {
+      if (!looksLikeRef(ref)) {
+        return res.status(400).json({ error: 'That does not look like a commit or branch.' });
+      }
+    }
+
+    try {
+      const range = base ? `${base}..${head}` : head;
+      const total = Number((await git.raw(['rev-list', '--count', range, '--'])).trim()) || 0;
+      const raw = await git.raw([
+        'log', `--max-count=${LOG_LIMIT}`, ...(base ? ['--reverse'] : []),
+        '--format=%H%x00%h%x00%s%x00%an%x00%cr%x00%P%x00%b%x1e', range, '--'
+      ]);
+
+      const commits = raw.split('\u001e').map(record => record.replace(/^\n/, '')).filter(Boolean).map(record => {
+        const [sha, short, subject, author, when, parents, body] = record.split('\u0000');
+        return {
+          sha, short, subject, author, when,
+          body: (body ?? '').trim(),
+          // A merge is shown against its first parent when reviewed alone --
+          // what it brought in -- and the list says it is one, because that
+          // diff can be surprisingly large.
+          merge: (parents ?? '').trim().split(/\s+/).filter(Boolean).length > 1
+        };
+      });
+
+      res.json({
+        order: base ? 'oldest-first' : 'newest-first',
+        total,
+        truncated: total > commits.length,
+        commits
+      });
+    } catch {
+      res.status(400).json({ error: `Could not read the history of "${base ? `${base}..${head}` : head}".` });
+    }
+  });
+
+  /**
+   * The commits of an open repository, newest first. Kept for 2.11 callers;
+   * the page itself uses /api/refs and /api/log.
+   *
+   * Behind a session id like the file endpoints rather than taking a path:
+   * this reads history out of a repository, and the session is what says
+   * which repository the caller has already been granted.
+   */
   app.get('/api/commits/:repoId', async (req, res) => {
     try {
       const session = requireSession(res, req.params.repoId);
@@ -608,7 +768,7 @@ function createApp(options = {}) {
       // Resolve to the root of the working tree before anything is keyed on
       // this path. A subdirectory passes `checkIsRepo()` quite happily and
       // then produces a file list whose diffs are all empty; see lib/repo.js.
-      const { base, head } = req.body ?? {};
+      const { base, head, commits: run } = req.body ?? {};
       const root = await repoRoot(repoPath, gitFactory);
       if (!root) {
         return res.status(400).json({ error: 'Not a valid git repository' });
@@ -621,7 +781,18 @@ function createApp(options = {}) {
       let range = null;
       let message;
 
-      if (base !== undefined && base !== null && `${base}`.trim() !== '') {
+      if (run && typeof run === 'object') {
+        // Commits themselves, one or a run: see resolveCommitRun.
+        try {
+          range = await resolveCommitRun(git, `${run.from ?? ''}`.trim(), `${run.to ?? run.from ?? ''}`.trim());
+        } catch (error) {
+          return res.status(400).json({ error: error.message });
+        }
+
+        files = await collectRangeChanges(git, range);
+        mode = 'range';
+        message = describeCommitRun(range, files.length);
+      } else if (base !== undefined && base !== null && `${base}`.trim() !== '') {
         // An explicit range. Nothing falls back to anything here: someone who
         // asked for x1..x3 and is silently shown their working tree instead
         // has been told a lie about what they are reviewing.
