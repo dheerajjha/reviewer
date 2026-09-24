@@ -57,3 +57,19 @@ test('modifier keys prevent shortcuts from firing', () => {
     assert.equal(getKeyboardShortcut('p', 'DIV'), 'prevComment');
     assert.equal(getKeyboardShortcut('p', 'DIV', {}), 'prevComment');
 });
+
+test('[ and ] step to the older and newer commit', () => {
+    assert.equal(getKeyboardShortcut('[', 'DIV'), 'prevCommit');
+    assert.equal(getKeyboardShortcut(']', 'DIV'), 'nextCommit');
+});
+
+test('shortcuts are ignored while a picker has focus', () => {
+    // A letter typed into a <select> is the browser's type-ahead: "c" jumps
+    // to the first option starting with c. It also opened a comment box,
+    // because only INPUT and TEXTAREA were excluded when the compare pickers
+    // arrived in 2.12.
+    assert.equal(getKeyboardShortcut('c', 'SELECT'), null);
+    assert.equal(getKeyboardShortcut('j', 'SELECT'), null);
+    assert.equal(getKeyboardShortcut(']', 'SELECT'), null);
+    assert.equal(getKeyboardShortcut('Escape', 'SELECT'), 'escape', 'Escape still means never mind');
+});

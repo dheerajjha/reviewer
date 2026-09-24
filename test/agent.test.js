@@ -533,3 +533,29 @@ test('a straight-line range names both ends without talking about divergence', (
   assert.match(briefing, /Reviewed: main → feature\/auth \(7c9c142\.\.4f2c0e1\), 3 commits/);
   assert.doesNotMatch(briefing, /diverged|leave that code alone/);
 });
+
+test('a single commit reviewed alone says so, and names it', () => {
+  // "Between A and B" would suggest A's own changes were outside the review.
+  // For a picked commit they are the review.
+  const briefing = formatPrompt(buildReviewDocument({
+    repoPath: '/work/api',
+    generatedAt: new Date('2026-09-24T00:00:00Z'),
+    mode: 'range',
+    range: { kind: 'commits', first: 'ff607ef', last: 'ff607ef', commits: 1, subject: 'Add credential check' },
+    comments: [{ file: 'a.js', line: 1, lineContent: 'x', text: 'y' }]
+  }));
+
+  assert.match(briefing, /Reviewed: commit ff607ef \("Add credential check"\) on its own, against its parent\./);
+});
+
+test('a run of commits says both ends are included', () => {
+  const briefing = formatPrompt(buildReviewDocument({
+    repoPath: '/work/api',
+    generatedAt: new Date('2026-09-24T00:00:00Z'),
+    mode: 'range',
+    range: { kind: 'commits', first: '3653951', last: '9d800a2', commits: 3 },
+    comments: [{ file: 'a.js', line: 1, lineContent: 'x', text: 'y' }]
+  }));
+
+  assert.match(briefing, /Reviewed: 3 commits, 3653951 through 9d800a2 inclusive, as a single combined diff\./);
+});

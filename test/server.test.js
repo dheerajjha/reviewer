@@ -1784,3 +1784,150 @@ test('the refs list needs a session', async t => {
   const response = await fetch(`${server.url}/api/refs/not-a-session`);
   assert.equal(response.status, 400);
 });
+
+// --- reviewing commits themselves: one, or a run ------------------------------
+
+const shaOf = async (repoPath, ref) => (await git(repoPath, ['rev-parse', ref])).stdout.trim();
+
+test('one commit reviewed on its own shows only what that commit changed', async t => {
+  const server = await startTestServer();
+  const repoPath = await repoWithDivergedBranches();
+  t.after(async () => { await server.close(); await cleanup(repoPath); });
+
+  // feature/auth~1 is "add a check": it adds check.js and touches nothing else.
+  const middle = await shaOf(repoPath, 'feature/auth~1');
+  const { status, body } = await loadScope(server.url, { repoPath, commits: { from: middle, to: middle } });
+
+  assert.equal(status, 200);
+  assert.deepEqual(statusesOf(body.files), ['A src/check.js']);
+  assert.equal(body.range.kind, 'commits');
+  assert.equal(body.range.commits, 1);
+  assert.equal(body.range.subject, 'add a check');
+  assert.match(body.message, /^Commit [0-9a-f]{7}: add a check — 1 changed file$/);
+});
+
+test('a run of commits includes both ends', async t => {
+  // The difference from a comparison: clicking the first commit and
+  // shift-clicking the second means both are in the review, so the diff
+  // starts at the first one's parent.
+  const server = await startTestServer();
+  const repoPath = await repoWithDivergedBranches();
+  t.after(async () => { await server.close(); await cleanup(repoPath); });
+
+  const first = await shaOf(repoPath, 'feature/auth~2');
+  const second = await shaOf(repoPath, 'feature/auth~1');
+  const { body } = await loadScope(server.url, { repoPath, commits: { from: first, to: second } });
+
+  assert.deepEqual(statusesOf(body.files), ['A src/check.js', 'M src/auth.js']);
+  assert.equal(body.range.commits, 2);
+  assert.equal(body.range.from, await shaOf(repoPath, 'feature/auth~3'), 'from the parent of the first');
+});
+
+test('the root commit can be reviewed, against the empty tree', async t => {
+  // It has no parent, so there is nothing to diff it against but nothing --
+  // which is also how `git show` presents one: every file added.
+  const server = await startTestServer();
+  const repoPath = await repoWithDivergedBranches();
+  t.after(async () => { await server.close(); await cleanup(repoPath); });
+
+  const root = (await git(repoPath, ['rev-list', '--max-parents=0', 'HEAD'])).stdout.trim();
+  const { status, body } = await loadScope(server.url, { repoPath, commits: { from: root, to: root } });
+
+  assert.equal(status, 200);
+  assert.deepEqual(statusesOf(body.files), ['A src/auth.js', 'A src/config.js']);
+  const full = await (await fetch(`${server.url}/api/file-full/${body.repoId}/src/config.js`)).json();
+  assert.equal(full.lines[0], 'PORT = 3000');
+});
+
+test('a run given backwards, or across branches, is refused with the reason', async t => {
+  // Ancestry is checked through merge-base's output. `merge-base
+  // --is-ancestor` answers only by exit code, which simple-git does not
+  // surface for a silent failure, and it called every pair ordered.
+  const server = await startTestServer();
+  const repoPath = await repoWithDivergedBranches();
+  t.after(async () => { await server.close(); await cleanup(repoPath); });
+
+  const newer = await shaOf(repoPath, 'feature/auth');
+  const older = await shaOf(repoPath, 'feature/auth~2');
+  const backwards = await loadScope(server.url, { repoPath, commits: { from: newer, to: older } });
+  assert.equal(backwards.status, 400);
+  assert.match(backwards.body.error, /does not come before/);
+
+  const across = await loadScope(server.url, { repoPath, commits: { from: 'main', to: newer } });
+  assert.equal(across.status, 400, 'main moved on after feature/auth was cut, so it is not before it');
+  assert.match(across.body.error, /Use Compare/);
+});
+
+test('a commit run refuses a ref that is really an option', async t => {
+  const server = await startTestServer();
+  const repoPath = await repoWithDivergedBranches();
+  t.after(async () => { await server.close(); await cleanup(repoPath); });
+
+  const { status } = await loadScope(server.url, { repoPath, commits: { from: '--output=/tmp/x', to: 'HEAD' } });
+  assert.equal(status, 400);
+});
+
+test('the log of a comparison is its commits, oldest first, with their messages', async t => {
+  const server = await startTestServer();
+  const repoPath = await repoWithDivergedBranches();
+  t.after(async () => { await server.close(); await cleanup(repoPath); });
+
+  await commitFiles(repoPath, { 'src/auth.js': 'export function login(p, u) {}\n' }, 'widen login\n\nTakes the user too.\n\n- one\n- two');
+  const { body } = await loadScope(server.url, { repoPath });
+  const log = await (await fetch(`${server.url}/api/log/${body.repoId}?base=main&head=feature/auth`)).json();
+
+  assert.equal(log.order, 'oldest-first');
+  assert.equal(log.total, 4);
+  assert.deepEqual(log.commits.map(c => c.subject), ['take a password', 'add a check', 'use the check', 'widen login']);
+  assert.equal(log.commits[3].body, 'Takes the user too.\n\n- one\n- two', 'the body, newlines and all');
+  assert.equal(log.commits[0].merge, false);
+});
+
+test('the log of a branch with no base is its recent history, newest first', async t => {
+  const server = await startTestServer();
+  const repoPath = await repoWithDivergedBranches();
+  t.after(async () => { await server.close(); await cleanup(repoPath); });
+
+  const { body } = await loadScope(server.url, { repoPath });
+  const log = await (await fetch(`${server.url}/api/log/${body.repoId}?head=feature/auth`)).json();
+
+  assert.equal(log.order, 'newest-first');
+  assert.deepEqual(log.commits.map(c => c.subject), ['use the check', 'add a check', 'take a password', 'skeleton']);
+  assert.equal(log.truncated, false);
+});
+
+test('the log marks a merge commit as one', async t => {
+  const server = await startTestServer();
+  const repoPath = await repoWithDivergedBranches();
+  t.after(async () => { await server.close(); await cleanup(repoPath); });
+
+  await git(repoPath, ['merge', '-q', '--no-ff', '-m', 'bring in billing', 'feature/billing']);
+  const { body } = await loadScope(server.url, { repoPath });
+  const log = await (await fetch(`${server.url}/api/log/${body.repoId}?head=HEAD`)).json();
+
+  assert.equal(log.commits[0].subject, 'bring in billing');
+  assert.equal(log.commits[0].merge, true);
+});
+
+test('the log refuses a ref that is really an option, and needs a session', async t => {
+  const server = await startTestServer();
+  const repoPath = await repoWithDivergedBranches();
+  t.after(async () => { await server.close(); await cleanup(repoPath); });
+
+  const { body } = await loadScope(server.url, { repoPath });
+  const flag = await fetch(`${server.url}/api/log/${body.repoId}?head=--output=/tmp/x`);
+  assert.equal(flag.status, 400);
+  const nobody = await fetch(`${server.url}/api/log/not-a-session`);
+  assert.equal(nobody.status, 400);
+});
+
+test("the pickers' commits follow the branch being compared, not the checkout", async t => {
+  const server = await startTestServer();
+  const repoPath = await repoWithDivergedBranches();
+  t.after(async () => { await server.close(); await cleanup(repoPath); });
+
+  const { body } = await loadScope(server.url, { repoPath });
+  const refs = await (await fetch(`${server.url}/api/refs/${body.repoId}?head=feature/billing`)).json();
+
+  assert.deepEqual(refs.commits.map(c => c.subject), ['add billing', 'skeleton']);
+});

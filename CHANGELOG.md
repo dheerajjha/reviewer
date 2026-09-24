@@ -6,6 +6,38 @@ adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
 ## [Unreleased]
 
+### Added
+
+- **Review commit by commit.** Whenever a review is made of commits, the
+  sidebar lists them above the files — a comparison's commits oldest first, or
+  the branch's recent history when you are looking at its last commit. Click
+  one to review it on its own; shift-click a second to review the run between
+  them, both ends included; `[` and `]` step older and newer; **All commits**
+  goes back to the whole comparison. It is the gesture a pull request's commit
+  picker uses, so it does not have to be learned twice.
+- **A reviewed commit shows its whole message**, not just the subject line.
+  The body is often the only place the author says why.
+- **"The changes since that commit" is one shift-click again.** 2.11 had it as
+  a dropdown; 2.12 folded commits into the compare pickers, below every branch,
+  remote branch and tag — option 51 of 81 in this project's own repository —
+  which made comparing commits feel like a feature that had been removed. From
+  the last commit, shift-clicking a row further down the history is exactly
+  that comparison.
+- The compare pickers list recent commits second, right after local branches,
+  and they are the commits of whichever branch is being compared rather than
+  always of the checkout — so a commit can be compared against another branch
+  without typing its SHA. The button is **Compare** now, not "Compare
+  branches", because it compares branches, tags and commits.
+- The root commit can be reviewed on its own, against the empty tree — which
+  is how `git show` presents one.
+- `GET /api/log/:repoId`, and `commits: { from, to }` on `load-repo`.
+
+### Fixed
+
+- Keyboard shortcuts fired while a compare picker had focus. A letter typed in
+  a `<select>` is the browser's type-ahead, and `c` also opened a comment box,
+  because only text fields were excluded when the pickers arrived in 2.12.
+
 ## [2.12.0] - 2026-09-23
 
 ### Added

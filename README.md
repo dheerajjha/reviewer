@@ -3,7 +3,7 @@
 [![CI](https://github.com/dheerajjha/reviewer/actions/workflows/ci.yml/badge.svg)](https://github.com/dheerajjha/reviewer/actions/workflows/ci.yml)
 [![License: MIT](https://img.shields.io/badge/license-MIT-blue.svg)](LICENSE)
 [![Node](https://img.shields.io/badge/node-%3E%3D18-brightgreen.svg)](package.json)
-[![Tests](https://img.shields.io/badge/tests-335-brightgreen.svg)](test/)
+[![Tests](https://img.shields.io/badge/tests-355-brightgreen.svg)](test/)
 [![Dependencies](https://img.shields.io/badge/dependencies-3-brightgreen.svg)](package.json)
 
 When an agent writes the code, reading it becomes the bottleneck — and the tool
@@ -141,7 +141,7 @@ is nothing to configure:
 | Working directory clean | The last commit against its parent |
 | No commits yet | Every tracked and untracked file, as wholly new |
 
-### Comparing branches
+### Comparing branches and commits
 
 Those defaults cover the common case with nothing to set up, but a branch you
 have worked on for a day is several commits deep, and the default scope only
@@ -177,6 +177,29 @@ An empty comparison explains itself rather than showing a blank list. Two
 commits that add a file and then delete it produce no diff between the ends —
 correctly — and that reads as *"2 commits undo each other"*, not as *"nothing
 to review"*.
+
+#### Reviewing commit by commit
+
+Whenever the review is made of commits, the sidebar lists them above the files:
+the commits a comparison is made of, oldest first, or the branch's recent
+history when you are looking at its last commit.
+
+- **Click** a commit to review it on its own, with its full message above the
+  diff — often the only place the author says *why*.
+- **Shift-click** a second to review the run between them, both ends included.
+  From the last commit, shift-clicking three rows down is "the last three
+  commits"; inside a comparison, it skips the ones you have already read.
+- **`[`** and **`]`** step one commit older or newer, and **All commits** goes
+  back to the whole comparison.
+
+That is the same gesture a pull request's commit picker uses, for the same
+reasons: a large change reads better in the order it was written, and one
+commit of renames is easier to skip than to read around.
+
+A run has to be one unbroken line of history. To diff two points that are not
+— a commit on one branch against another branch — use **Compare**; its pickers
+list recent commits of whichever branch you are comparing, right after the
+local branches.
 
 Comments are kept when you switch between comparisons. One on a file that is
 not in the current view stays in the comments list, marked **Not in this
@@ -305,8 +328,9 @@ The UI is a client of this; nothing is hidden from you.
 | Endpoint | Purpose |
 |---|---|
 | `GET /api/health` | Liveness, plus the number of open sessions |
-| `POST /api/load-repo` | Open a repository; returns a `repoId` and the changed files. Pass `base` (and optionally `head`) to compare two refs from their merge base |
-| `GET /api/refs/:repoId` | Branches, remote branches, tags and recent commits, for choosing what to compare |
+| `POST /api/load-repo` | Open a repository; returns a `repoId` and the changed files. Pass `base` (and optionally `head`) to compare two refs from their merge base, or `commits: { from, to }` to review one commit or an unbroken run of them, both ends included |
+| `GET /api/refs/:repoId` | Branches, remote branches, tags and recent commits, for choosing what to compare. `?head=` makes the commits those of another branch |
+| `GET /api/log/:repoId` | Commits with their messages: `?base=&head=` for a comparison's commits, oldest first, or `?head=` alone for recent history, newest first |
 | `GET /api/commits/:repoId` | Recent commits only; kept for callers of 2.11 |
 | `GET /api/alive` | Held open by the page; when the last one closes, a terminal run stops |
 | `GET /api/file/:repoId/:path` | The file's diff, as structured lines |
@@ -338,7 +362,7 @@ rather than a public issue.
 
 ```bash
 npm install           # 3 dependencies, no build step, ~6MB
-npm test              # 335 tests
+npm test              # 355 tests
 npm run test:watch
 npm run test:coverage
 ```

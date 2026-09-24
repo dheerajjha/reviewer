@@ -166,9 +166,10 @@ const PICKERS = {
  * works; a repository whose refs will not list is not a reason to refuse to
  * compare it.
  */
-async function loadRefs(repoId) {
+async function loadRefs(repoId, head) {
   try {
-    const response = await fetch(`${API_BASE}/refs/${repoId}`);
+    const query = head ? `?${new URLSearchParams({ head })}` : '';
+    const response = await fetch(`${API_BASE}/refs/${repoId}${query}`);
     currentRefs = response.ok ? await response.json() : null;
   } catch {
     currentRefs = null;
@@ -207,12 +208,15 @@ function fillPicker(end) {
       `${branch.name}${branch.name === refs.current ? ' (current)' : ''}  ·  ${branch.when}`,
       branch.name
     )));
-    group('Remote branches', refs.remotes.map(branch => new Option(`${branch.name}  ·  ${branch.when}`, branch.name)));
-    group('Tags', refs.tags.map(tag => new Option(`${tag.name}  ·  ${tag.when}`, tag.name)));
+    // Commits second, not last. In 2.12 they came after every remote branch
+    // and tag -- option 51 of 81 in this project's own repository -- which is
+    // why comparing a commit felt like a feature that had been removed.
     group(
-      refs.current ? `Recent commits on ${refs.current}` : 'Recent commits',
+      'Recent commits',
       refs.commits.map(commit => new Option(`${commit.short}  ·  ${commit.subject}  ·  ${commit.when}`, commit.sha))
     );
+    group('Remote branches', refs.remotes.map(branch => new Option(`${branch.name}  ·  ${branch.when}`, branch.name)));
+    group('Tags', refs.tags.map(tag => new Option(`${tag.name}  ·  ${tag.when}`, tag.name)));
   }
 
   select.appendChild(new Option('Other: a tag, HEAD~5, a sha…', OTHER_REF));
@@ -353,14 +357,88 @@ function renderScope(data) {
     el.textContent = text;
     return el;
   };
-  const setNote = text => {
+  const setNote = (text, { message = false } = {}) => {
     note.textContent = text ?? '';
     note.classList.toggle('hidden', !text);
+    // A commit message keeps its line breaks; an explanation reflows.
+    note.classList.toggle('scope-note-message', Boolean(text) && message);
   };
+
+  const nav = document.getElementById('commitNav');
+  const position = document.getElementById('commitPosition');
+  const allCommits = document.getElementById('allCommitsBtn');
+  nav.classList.add('hidden');
+  allCommits.classList.add('hidden');
+  reset.textContent = 'Stop comparing';
 
   bar.classList.remove('hidden');
   label.replaceChildren();
   const branch = currentRefs?.current;
+
+  if (data.mode === 'range' && data.range?.kind === 'commits') {
+    // One commit, or a run of them, picked from the commits list.
+    const run = data.range;
+    const single = run.first === run.last;
+    const chrono = chronologicalCommits(commitContext);
+    const index = chrono.findIndex(commit => commit.sha === run.first);
+    const commit = single && index !== -1 ? chrono[index] : null;
+    const files = plural(data.files.length, 'file') + ' changed';
+
+    if (single) {
+      label.append('Commit ', strong(run.headName));
+    } else {
+      label.append(strong(run.baseName), ' \u2026 ', strong(run.headName));
+    }
+
+    const inComparison = commitContext?.kind === 'comparison';
+    if (inComparison) {
+      const outer = commitContext.range;
+      label.append(' in ', strong(displayRef(outer.baseName ?? outer.base)), ' \u2192 ',
+        strong(displayRef(outer.headName ?? outer.head)));
+    } else if (branch) {
+      label.append(' on ', strong(branch));
+    }
+
+    meta.textContent = single
+      ? `${commit?.subject ?? run.subject ?? ''} \u00b7 ${files}`
+      : `${plural(run.commits, 'commit')} \u00b7 ${files}`;
+
+    // The message is review material -- often the only place the author says
+    // why -- so a single commit shows its body, not just its subject line.
+    if (single && commit?.body) {
+      setNote(commit.body, { message: true });
+    } else if (!single) {
+      setNote(`Reviewing ${plural(run.commits, 'commit')} as one combined diff, from ${run.baseName} through ${run.headName}.`);
+    } else {
+      setNote(null);
+    }
+
+    if (single && index !== -1) {
+      nav.classList.remove('hidden');
+      // "2 of 3" means something inside a comparison; inside a branch's
+      // history it would count from wherever the list happened to stop.
+      position.textContent = inComparison ? `${index + 1} of ${chrono.length}` : '';
+      document.getElementById('prevCommitBtn').disabled = index === 0;
+      document.getElementById('nextCommitBtn').disabled = index === chrono.length - 1;
+    }
+
+    if (inComparison) {
+      row.classList.remove('hidden');
+      const outer = commitContext.range;
+      selectRef('base', outer.baseName, outer.base);
+      selectRef('head', outer.headName, outer.head);
+      allCommits.textContent = `All ${plural(chrono.length, 'commit')}`;
+      allCommits.classList.remove('hidden');
+      toggle.classList.add('hidden');
+      reset.classList.remove('hidden');
+    } else {
+      row.classList.add('hidden');
+      toggle.classList.remove('hidden');
+      reset.textContent = 'Back to latest';
+      reset.classList.remove('hidden');
+    }
+    return;
+  }
 
   if (data.mode === 'range' && data.range) {
     const range = data.range;
@@ -401,18 +479,263 @@ function renderScope(data) {
   if (data.mode === 'lastCommit') {
     label.append('Last commit');
     if (branch) label.append(' on ', strong(branch));
-    const tip = currentRefs?.commits?.[0];
+    const tip = commitContext?.commits?.[0] ?? currentRefs?.commits?.[0];
     meta.textContent = tip ? `${tip.subject} · ${tip.short}` : '';
+    setNote(tip?.body || null, { message: true });
+
+    // One click back through history from here -- the first thing someone
+    // looking at the last commit is likely to want next.
+    if ((commitContext?.commits?.length ?? 0) > 1) {
+      nav.classList.remove('hidden');
+      position.textContent = '';
+      document.getElementById('prevCommitBtn').disabled = false;
+      document.getElementById('nextCommitBtn').disabled = true;
+    }
   } else {
     label.append('Uncommitted changes');
     if (branch) label.append(' on ', strong(branch));
     meta.textContent = plural(data.files.length, 'file') + ' changed';
+    setNote(null);
   }
 
-  setNote(null);
   row.classList.add('hidden');
   toggle.classList.remove('hidden');
   reset.classList.add('hidden');
+}
+
+// --- commits: reviewing them one at a time, or a run of them -----------------
+
+// What the commits list is showing. `comparison` is the commits a Compare is
+// made of, oldest first; `history` is the recent history of the branch when
+// the view is its last commit, newest first. Null for the working tree, which
+// has no commits to list. `range` keeps the outer comparison, so narrowing to
+// one commit does not lose what it was a commit *of*.
+let commitContext = null;
+
+// Which of those commits the review currently shows, as `{from, to}` shas,
+// oldest first; null for all of them.
+let commitSelection = null;
+
+// The commit a shift-click extends from.
+let commitAnchor = null;
+
+/** The context's commits, oldest first, whichever order the list shows them in. */
+function chronologicalCommits(context) {
+  if (!context) return [];
+  return context.order === 'newest-first' ? [...context.commits].reverse() : context.commits;
+}
+
+/**
+ * The run between two commits of a list, oldest first -- whichever was
+ * clicked first. A shift-click upwards and one downwards select the same run.
+ *
+ * @param {{sha: string}[]} chronological commits, oldest first
+ * @returns {[string, string]|null} [from, to]
+ */
+function orderedRun(chronological, a, b) {
+  const i = chronological.findIndex(commit => commit.sha === a);
+  const j = chronological.findIndex(commit => commit.sha === b);
+  if (i === -1 || j === -1) return null;
+  return i <= j
+    ? [chronological[i].sha, chronological[j].sha]
+    : [chronological[j].sha, chronological[i].sha];
+}
+
+/**
+ * Where a step lands, or -1 if there is nowhere to go.
+ *
+ * From "all commits" a step forward starts at the oldest -- the beginning of
+ * the story -- and a step back starts at the newest. Stepping never wraps:
+ * reaching the end of a branch and silently landing on its first commit
+ * again reads as the list having started over.
+ *
+ * @param {number} length
+ * @param {number} current index of the one commit shown, or -1 if not one
+ * @param {1|-1} direction +1 newer, -1 older
+ */
+function stepIndex(length, current, direction) {
+  if (length === 0) return -1;
+  if (current === -1) return direction > 0 ? 0 : length - 1;
+  const next = current + direction;
+  return next >= 0 && next < length ? next : -1;
+}
+
+/**
+ * "3 hours ago" as "3h", for a list where the subject needs the width.
+ *
+ * Git's relative dates are written for a sentence, and in a 320px sidebar
+ * "2 seconds ago" took more room than the commit subject beside it. The full
+ * phrase stays in the row's tooltip. Anything not recognised is returned as
+ * it came, rather than guessed at.
+ *
+ * @param {string} when git's %cr, e.g. "3 weeks ago" or "1 year, 2 months ago"
+ */
+function compactWhen(when) {
+  const match = /^(\d+) (second|minute|hour|day|week|month|year)s?(?:, .*)? ago$/.exec(when ?? '');
+  if (!match) return when ?? '';
+  const unit = { second: 's', minute: 'm', hour: 'h', day: 'd', week: 'w', month: 'mo', year: 'y' }[match[2]];
+  return `${match[1]}${unit}`;
+}
+
+/** Fetch a commits list for the context the review is in. */
+async function fetchCommitContext(repoId, kind, { base, head, range }) {
+  const query = new URLSearchParams({ head });
+  if (base) query.set('base', base);
+
+  try {
+    const response = await fetch(`${API_BASE}/log/${repoId}?${query}`);
+    if (!response.ok) return null;
+    const log = await response.json();
+    return { kind, base, head, range, ...log };
+  } catch {
+    return null;
+  }
+}
+
+/**
+ * Decide what the commits list shows after a load.
+ *
+ * A load that narrows to commits keeps the list it narrowed from; anything
+ * else rebuilds it. The branch history offered with "last commit" is the same
+ * gesture as a comparison's commits: this is where "review the changes since
+ * that commit", which 2.11 had as a dropdown and 2.12 buried under forty
+ * branches, lives now.
+ */
+async function refreshCommitContext(data, scope) {
+  if (scope.commits && commitContext) {
+    commitSelection = { from: data.range.first, to: data.range.last };
+    return;
+  }
+
+  commitAnchor = null;
+  commitSelection = null;
+
+  if (data.mode === 'range' && data.range) {
+    commitContext = await fetchCommitContext(data.repoId, 'comparison', {
+      base: data.range.base, head: data.range.head, range: data.range
+    });
+  } else if (data.mode === 'lastCommit' && data.range) {
+    commitContext = await fetchCommitContext(data.repoId, 'history', { head: data.range.head });
+    // The last commit is itself one of the listed commits, so it is shown as
+    // the selected one, and shift-clicking further down selects "since then".
+    commitSelection = { from: data.range.head, to: data.range.head };
+    commitAnchor = data.range.head;
+  } else {
+    commitContext = null;
+  }
+}
+
+/** Draw the commits list, marking the ones the review is of. */
+function renderCommitList() {
+  const section = document.getElementById('commitsSection');
+  const list = document.getElementById('commitsList');
+  const title = document.getElementById('commitsTitle');
+  const count = document.getElementById('commitCount');
+  const truncated = document.getElementById('commitsTruncated');
+
+  if (!commitContext || commitContext.commits.length === 0) {
+    section.classList.add('hidden');
+    return;
+  }
+
+  section.classList.remove('hidden');
+  title.textContent = commitContext.kind === 'comparison'
+    ? 'Commits in this comparison'
+    : `Recent commits${currentRefs?.current ? ` on ${currentRefs.current}` : ''}`;
+  count.textContent = String(commitContext.total);
+  truncated.classList.toggle('hidden', !commitContext.truncated);
+  truncated.textContent = commitContext.truncated
+    ? `Showing ${commitContext.commits.length} of ${commitContext.total}. Anything further back is still reachable by typing it into Compare.`
+    : '';
+
+  // Which rows are in the review: everything from `from` to `to` in time,
+  // or every row when there is no selection.
+  const chrono = chronologicalCommits(commitContext);
+  const inRun = new Set();
+  if (commitSelection) {
+    const i = chrono.findIndex(c => c.sha === commitSelection.from);
+    const j = chrono.findIndex(c => c.sha === commitSelection.to);
+    if (i !== -1 && j !== -1) chrono.slice(Math.min(i, j), Math.max(i, j) + 1).forEach(c => inRun.add(c.sha));
+  } else {
+    chrono.forEach(c => inRun.add(c.sha));
+  }
+
+  // Built from nodes: subjects and author names are whatever the repository
+  // says, and they are shown, never parsed as markup.
+  const rows = commitContext.commits.map(commit => {
+    const item = document.createElement('li');
+    item.className = 'commit-item';
+    item.dataset.sha = commit.sha;
+    item.tabIndex = 0;
+    item.setAttribute('role', 'option');
+    const selected = inRun.has(commit.sha) && commitSelection !== null;
+    item.setAttribute('aria-selected', String(selected));
+    if (selected) item.classList.add('commit-item-selected');
+    item.title = `${commit.subject}\n${commit.short} · ${commit.author} · ${commit.when}${commit.merge ? ' · merge' : ''}`;
+
+    const sha = document.createElement('span');
+    sha.className = 'commit-sha';
+    sha.textContent = commit.short;
+    const subject = document.createElement('span');
+    subject.className = 'commit-subject';
+    subject.textContent = commit.subject;
+    const when = document.createElement('span');
+    when.className = 'commit-when';
+    when.textContent = compactWhen(commit.when);
+
+    item.append(sha, subject);
+    if (commit.merge) {
+      const merge = document.createElement('span');
+      merge.className = 'commit-merge';
+      merge.textContent = 'merge';
+      item.append(merge);
+    }
+    item.append(when);
+    return item;
+  });
+  list.replaceChildren(...rows);
+
+  const current = list.querySelector('.commit-item-selected');
+  if (current) current.scrollIntoView({ block: 'nearest' });
+}
+
+/**
+ * Review one commit, or -- with shift -- the run from the anchor to it.
+ *
+ * @param {string} sha
+ * @param {boolean} extend
+ */
+function selectCommit(sha, extend) {
+  if (!commitContext) return;
+
+  if (extend && commitAnchor) {
+    const run = orderedRun(chronologicalCommits(commitContext), commitAnchor, sha);
+    if (run) loadRepo({ commits: { from: run[0], to: run[1] } });
+    return;
+  }
+
+  commitAnchor = sha;
+  loadRepo({ commits: { from: sha, to: sha } });
+}
+
+/** Step one commit older (-1) or newer (+1): commit-by-commit review. */
+function stepCommit(direction) {
+  if (!commitContext) return;
+  const chrono = chronologicalCommits(commitContext);
+  const single = commitSelection && commitSelection.from === commitSelection.to
+    ? chrono.findIndex(c => c.sha === commitSelection.from)
+    : -1;
+  const next = stepIndex(chrono.length, single, direction);
+  if (next !== -1) selectCommit(chrono[next].sha, false);
+}
+
+/** Back from one commit to the whole comparison it was part of. */
+function showAllCommits() {
+  if (commitContext?.kind !== 'comparison') return;
+  // By the names that were picked, so the bar still says main -> feature/auth
+  // rather than two SHAs.
+  const { range } = commitContext;
+  loadRepo({ base: range.baseName ?? range.base, head: range.headName ?? range.head });
 }
 
 /** Empty the diff pane, so a finished comparison cannot leave the last one's file on screen. */
@@ -435,9 +758,10 @@ function showEmptyFileList(message) {
 /**
  * Load a repository, optionally as a range between two commits.
  *
- * @param {{base?: string, head?: string}} [scope] omit for the default:
- *   uncommitted changes, falling back to the last commit on a clean tree.
- *   `head` defaults to HEAD on the server.
+ * @param {{base?: string, head?: string, commits?: {from: string, to: string}}} [scope]
+ *   omit for the default: uncommitted changes, falling back to the last
+ *   commit on a clean tree. `base`/`head` compare two refs from their merge
+ *   base; `commits` reviews one commit or an unbroken run of them, inclusive.
  */
 async function loadRepo(scope = {}) {
   const repoPath = document.getElementById('repoPath').value.trim();
@@ -454,9 +778,11 @@ async function loadRepo(scope = {}) {
     const response = await fetch(`${API_BASE}/load-repo`, {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify(scope.base
-        ? { repoPath, base: scope.base, ...(scope.head ? { head: scope.head } : {}) }
-        : { repoPath })
+      body: JSON.stringify(
+        scope.commits ? { repoPath, commits: scope.commits }
+          : scope.base ? { repoPath, base: scope.base, ...(scope.head ? { head: scope.head } : {}) }
+            : { repoPath }
+      )
     });
 
     const data = await response.json();
@@ -476,10 +802,14 @@ async function loadRepo(scope = {}) {
       setRepoButton(data.repoPath);
     }
 
-    // Before renderScope, which needs the options present to select the
-    // current ends among them, and the current branch to name it.
-    await loadRefs(data.repoId);
+    // In this order: the commits list first, because it decides which head
+    // the pickers' commits should follow; the refs next, because renderScope
+    // needs the options present to select the current ends among them and
+    // the current branch to name it; then the bar and the list.
+    await refreshCommitContext(data, scope);
+    await loadRefs(data.repoId, commitContext?.head ?? data.range?.head);
     renderScope(data);
+    renderCommitList();
 
     if (data.files.length === 0) {
       // A range with no files is a real answer, not a failure: every change
@@ -493,7 +823,11 @@ async function loadRepo(scope = {}) {
         clearStatus();
         hidePicker();
         displayFiles([]);
-        showEmptyFileList('No files differ between these two.');
+        showEmptyFileList(data.range?.kind !== 'commits'
+          ? 'No files differ between these two.'
+          : data.range.first === data.range.last
+            ? 'This commit changes no files.'
+            : 'These commits change no files between them.');
         updateCommentsSidebar();
         // Or the previous comparison's file stays on screen under a bar that
         // says there are no files, and reads as part of this one.
@@ -2082,7 +2416,11 @@ function getKeyboardShortcut(key, targetTagName, modifiers = {}) {
   // must be checked before the typing guard.
   if (key === 'Escape') return 'escape';
 
-  if (targetTagName === 'INPUT' || targetTagName === 'TEXTAREA') {
+  // SELECT as well as the text fields. With focus in one of the compare
+  // pickers, a letter is the browser's type-ahead -- "c" jumps to the first
+  // option starting with c -- and it also opened a comment box, because only
+  // INPUT and TEXTAREA were excluded here when the pickers arrived in 2.12.
+  if (targetTagName === 'INPUT' || targetTagName === 'TEXTAREA' || targetTagName === 'SELECT') {
     return null;
   }
 
@@ -2094,6 +2432,8 @@ function getKeyboardShortcut(key, targetTagName, modifiers = {}) {
     'n': 'nextComment',
     'p': 'prevComment',
     'c': 'commentFocus',
+    '[': 'prevCommit',
+    ']': 'nextCommit',
     '?': 'help'
   };
 
@@ -2132,6 +2472,25 @@ document.addEventListener('DOMContentLoaded', () => {
     }
   });
 
+  // The commits list: click reviews one, shift-click the run to it. Enter
+  // and shift+Enter do the same from the keyboard, since every row is
+  // focusable.
+  const commitsList = document.getElementById('commitsList');
+  commitsList.addEventListener('click', (e) => {
+    const item = e.target.closest('.commit-item');
+    if (!item) return;
+    // Shift-click also extends the browser's text selection across the rows
+    // it passes; that is noise here, not a gesture anyone meant.
+    if (e.shiftKey) window.getSelection()?.removeAllRanges();
+    selectCommit(item.dataset.sha, e.shiftKey);
+  });
+  commitsList.addEventListener('keydown', (e) => {
+    const item = e.target.closest('.commit-item');
+    if (!item || e.key !== 'Enter') return;
+    e.preventDefault();
+    selectCommit(item.dataset.sha, e.shiftKey);
+  });
+
   for (const end of ['base', 'head']) {
     document.getElementById(PICKERS[end].other).addEventListener('keypress', (e) => {
       if (e.key === 'Enter') {
@@ -2163,6 +2522,12 @@ document.addEventListener('DOMContentLoaded', () => {
     } else if (action === 'commentFocus') {
       e.preventDefault();
       handleCommentShortcut();
+    } else if (action === 'prevCommit') {
+      e.preventDefault();
+      stepCommit(-1);
+    } else if (action === 'nextCommit') {
+      e.preventDefault();
+      stepCommit(1);
     } else if (action === 'help') {
       e.preventDefault();
       document.getElementById('helpButton').click();

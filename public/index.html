@@ -62,7 +62,16 @@
           <span id="scopeMeta" class="scope-meta"></span>
         </div>
         <div class="scope-actions">
-          <button id="compareToggle" class="scope-action" onclick="openCompare()">Compare branches</button>
+          <div id="commitNav" class="commit-nav hidden" role="group" aria-label="Step through commits">
+            <button id="prevCommitBtn" class="scope-action" onclick="stepCommit(-1)"
+              title="Older commit ( [ )" aria-label="Older commit">&#8249;</button>
+            <span id="commitPosition" class="commit-position"></span>
+            <button id="nextCommitBtn" class="scope-action" onclick="stepCommit(1)"
+              title="Newer commit ( ] )" aria-label="Newer commit">&#8250;</button>
+          </div>
+          <button id="allCommitsBtn" class="scope-action hidden" onclick="showAllCommits()">All commits</button>
+          <button id="compareToggle" class="scope-action" onclick="openCompare()"
+            title="Compare two branches, tags or commits">Compare</button>
           <button id="scopeResetBtn" class="scope-action hidden" onclick="resetScope()">Stop comparing</button>
         </div>
       </div>
@@ -186,7 +195,7 @@
           <span class="help-keys">
             <kbd>⌘</kbd><kbd>Enter</kbd> save · <kbd>Esc</kbd> cancel ·
             <kbd>↑</kbd><kbd>↓</kbd><kbd>j</kbd><kbd>k</kbd> files ·
-            <kbd>n</kbd><kbd>p</kbd> comments · <kbd>c</kbd> new comment · <kbd>?</kbd> help
+            <kbd>n</kbd><kbd>p</kbd> comments · <kbd>[</kbd><kbd>]</kbd> commits · <kbd>c</kbd> new comment · <kbd>?</kbd> help
           </span>
           <button class="help-done" onclick="closeHelp()">Got it</button>
         </div>
@@ -194,6 +203,20 @@
     </div>
 
     <aside id="sidebar" class="sidebar hidden">
+      <!-- The commits a review is made of, when it is made of commits. Click
+           one to review it on its own; shift-click a second to review the run
+           between them -- the same gesture a pull request's commit picker
+           uses, so it does not have to be learned twice. -->
+      <section id="commitsSection" class="commits-section hidden" aria-labelledby="commitsTitle">
+        <div class="sidebar-header">
+          <h2 id="commitsTitle">Commits</h2>
+          <span id="commitCount" class="file-count"></span>
+        </div>
+        <p class="commits-hint">Click one · <kbd>Shift</kbd>-click a run · <kbd>[</kbd><kbd>]</kbd> step</p>
+        <ol id="commitsList" class="commits-list" role="listbox" aria-label="Commits" aria-multiselectable="true"></ol>
+        <p id="commitsTruncated" class="commits-truncated hidden"></p>
+      </section>
+
       <div class="sidebar-header">
         <h2>Changed Files</h2>
         <span id="fileCount" class="file-count"></span>
