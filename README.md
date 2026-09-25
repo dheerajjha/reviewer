@@ -3,14 +3,14 @@
 [![CI](https://github.com/dheerajjha/reviewer/actions/workflows/ci.yml/badge.svg)](https://github.com/dheerajjha/reviewer/actions/workflows/ci.yml)
 [![License: MIT](https://img.shields.io/badge/license-MIT-blue.svg)](LICENSE)
 [![Node](https://img.shields.io/badge/node-%3E%3D18-brightgreen.svg)](package.json)
-[![Tests](https://img.shields.io/badge/tests-355-brightgreen.svg)](test/)
+[![Tests](https://img.shields.io/badge/tests-359-brightgreen.svg)](test/)
 [![Dependencies](https://img.shields.io/badge/dependencies-3-brightgreen.svg)](package.json)
 
 When an agent writes the code, reading it becomes the bottleneck — and the tool
 built for reading a diff, the pull request, wants a branch, a remote and a push
 you are not ready to make yet.
 
-`reviewer` gives you the pull-request view of your working directory instead:
+reviewer gives you the pull-request view of your working directory instead:
 inline comments with threaded follow-ups, each attached to the exact line you
 mean, with no branch, no remote, no push and no account. Then it hands the
 marked-up review back to the agent to act on.
@@ -19,15 +19,19 @@ marked-up review back to the agent to act on.
 npm install -g git-reviewer
 
 cd ~/your-project
-reviewer | claude -p "Apply this review."
+git reviewer | claude -p "Apply this review."
 ```
 
-That is the whole loop. `reviewer` opens the review in your browser; when you
+Installed as `git-reviewer`, it runs as `git reviewer` — git treats any
+`git-<name>` command on your PATH as a subcommand, so the name you install is
+the name you type. `reviewer` is the same program under a shorter name.
+
+That is the whole loop. `git reviewer` opens the review in your browser; when you
 press **Submit Review**, the review is written to stdout and the command
 exits — so whatever is on the other end of the pipe receives it and starts
 work. Nothing to copy, no second command, no file to go and find.
 
-Without a pipe, `reviewer` is just a review tool: it tells you where the
+Without a pipe, `git reviewer` is just a review tool: it tells you where the
 review was saved and keeps serving, because you may have more to read.
 Everything it says to you goes to stderr either way, so only the review is
 ever on stdout.
@@ -46,8 +50,8 @@ When the review and the hand-off happen at different times, the two-step form
 still works and is the one to reach for:
 
 ```bash
-reviewer                                            # read the diff, comment on it
-reviewer export . --format prompt | claude -p "Apply this review."
+git reviewer                                        # read the diff, comment on it
+git reviewer export . --format prompt | claude -p "Apply this review."
 ```
 
 Comments persist between sessions and survive the code moving underneath them —
@@ -64,8 +68,8 @@ comment they answer, and everything is saved as you type.
 ## Usage
 
 ```
-reviewer [repository] [options]
-reviewer export [repository] [--format json|prompt]
+git reviewer [repository] [options]
+git reviewer export [repository] [--format json|prompt]
 
   repository        A git repository, or any directory inside one
                     (default: the current directory)
@@ -79,10 +83,10 @@ reviewer export [repository] [--format json|prompt]
 ```
 
 ```bash
-reviewer                    # review the repository you are standing in
-reviewer ~/work/api         # review another one
-reviewer . --no-open        # print the URL, open it yourself
-reviewer . --port 8080      # somewhere other than 4500
+git reviewer                # review the repository you are standing in
+git reviewer ~/work/api     # review another one
+git reviewer . --no-open    # print the URL, open it yourself
+git reviewer . --port 8080  # somewhere other than 4500
 ```
 
 Two at once is fine — the second one finds its own port.
@@ -110,18 +114,24 @@ To install it as a command rather than running it through `npx`:
 
 ```bash
 npm install -g git-reviewer
-reviewer .
+git reviewer .
 ```
 
-The package is `git-reviewer` because `reviewer` and `code-reviewer` were both
-already taken on npm. It installs the command under both names, so whichever
-one you reach for is the one that is there:
+The package is called `git-reviewer` because `reviewer` was already taken on
+npm — and it turns out to be the right name. Git runs any `git-<name>` on your
+PATH as a subcommand, so the name you install is the name you type. It also
+installs `reviewer`, the same program under a shorter name, for anyone who
+prefers it:
 
 ```bash
-reviewer                    # the command
-git-reviewer                # the package name, if that is what you typed
-git reviewer                # git dispatches to it like any other subcommand
+git reviewer                # the name it is installed as
+reviewer                    # the same program, shorter
 ```
+
+Whichever you use is the name it uses back: help and hints are printed in
+terms of the command you actually ran, so they can be pasted as they are.
+Under git, `git reviewer --help` opens the manual page — git reads `--help` on
+any subcommand that way — and `git reviewer -h` prints the usage.
 
 From a clone, if you would rather not install anything:
 
@@ -132,7 +142,7 @@ cd reviewer && npm install && npm link
 
 ## What it shows you
 
-`reviewer` picks what to review based on the state of the repository, so there
+reviewer picks what to review based on the state of the repository, so there
 is nothing to configure:
 
 | Repository state | What you review |
@@ -290,8 +300,8 @@ export` prints the review you saved — no server, no submit step — either as
 JSON or as instructions ready to pipe:
 
 ```bash
-reviewer export . --format prompt | claude -p "Apply this review to the repo."
-reviewer export . | jq '.comments[].file'
+git reviewer export . --format prompt | claude -p "Apply this review to the repo."
+git reviewer export . | jq '.comments[].file'
 ```
 
 Every comment carries an `anchor`: the exact text of the line it was left on.
@@ -362,7 +372,7 @@ rather than a public issue.
 
 ```bash
 npm install           # 3 dependencies, no build step, ~6MB
-npm test              # 355 tests
+npm test              # 359 tests
 npm run test:watch
 npm run test:coverage
 ```

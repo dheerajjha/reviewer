@@ -4,7 +4,7 @@
 const fs = require('fs').promises;
 const path = require('path');
 
-const { parseArgs, buildUrl, UsageError, USAGE } = require('../lib/cli');
+const { parseArgs, buildUrl, UsageError, usage, invokedAs } = require('../lib/cli');
 const { homeRelative } = require('../lib/paths');
 const { openInBrowser } = require('../lib/browser');
 const { formatPrompt } = require('../lib/agent');
@@ -18,6 +18,10 @@ const {
 } = require('../lib/export');
 const { startServer, DEFAULT_PORT, DEFAULT_HOST } = require('../server');
 const { version } = require('../package.json');
+
+// What to call this command when it talks about itself: whatever the person
+// typed, so a hint can be pasted back as-is. See invokedAs in lib/cli.js.
+const NAME = invokedAs(process.env, process.argv[1]);
 
 /**
  * The `reviewer` command: start the local server and open it in a browser.
@@ -138,7 +142,7 @@ async function main() {
   }
 
   if (options.help) {
-    process.stdout.write(USAGE);
+    process.stdout.write(usage(NAME));
     return;
   }
 
@@ -212,7 +216,7 @@ async function main() {
       note(`\n  Review saved    ${homeRelative(reviewPath)}`);
       note(`  ${count}\n`);
       note('  Hand it to an agent with:');
-      note(`    reviewer export ${repoPath ? homeRelative(repoPath) : '.'} --format prompt | claude -p "Apply this review."\n`);
+      note(`    ${NAME} export ${repoPath ? homeRelative(repoPath) : '.'} --format prompt | claude -p "Apply this review."\n`);
       return;
     }
 
@@ -265,7 +269,7 @@ async function main() {
 main().catch(error => {
   if (error instanceof UsageError) {
     console.error(`error: ${error.message}\n`);
-    process.stderr.write(USAGE);
+    process.stderr.write(usage(NAME));
     process.exit(2);
   }
 

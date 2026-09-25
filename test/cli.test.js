@@ -4,7 +4,7 @@ const test = require('node:test');
 const assert = require('node:assert/strict');
 const path = require('node:path');
 
-const { parseArgs, buildUrl, UsageError, USAGE } = require('../lib/cli');
+const { parseArgs, buildUrl, UsageError, USAGE, usage, invokedAs } = require('../lib/cli');
 
 const CWD = path.resolve('/work');
 
@@ -161,7 +161,7 @@ test('the usage text documents every option the parser accepts', () => {
 });
 
 test('the usage names both commands the package installs', () => {
-  assert.match(USAGE, /reviewer and git-reviewer/);
+  assert.match(USAGE, /One program, two names/);
   assert.match(USAGE, /git reviewer/);
 });
 
@@ -170,4 +170,32 @@ test('the usage promise about the default is the one the command keeps', () => {
   // it. Pinning it here means the claim and the behaviour are changed
   // together or not at all.
   assert.match(USAGE, /Defaults to the current\s+directory/);
+});
+
+// --- the name it answers to ---------------------------------------------------
+
+test('help and hints use the name the command was run by', () => {
+  // The package is git-reviewer and installs reviewer too. Answering with one
+  // while someone typed the other is what made the pair confusing.
+  assert.equal(invokedAs({ GIT_EXEC_PATH: '/usr/lib/git-core' }, '/usr/local/bin/git-reviewer'), 'git reviewer');
+  assert.equal(invokedAs({}, '/usr/local/bin/git-reviewer'), 'git-reviewer');
+  assert.equal(invokedAs({}, '/usr/local/bin/reviewer'), 'reviewer');
+  assert.equal(invokedAs({}, 'C:\\npm\\reviewer'), 'reviewer');
+});
+
+test('under npx, the hint says npx -- neither bare name is on the PATH there', () => {
+  assert.equal(invokedAs({ npm_command: 'exec' }, '/tmp/_npx/1/node_modules/.bin/git-reviewer'), 'npx git-reviewer');
+});
+
+test('usage is written in terms of the name it is given', () => {
+  const text = usage('git reviewer');
+  assert.match(text, /^git reviewer — review local git changes/);
+  assert.match(text, /\n {2}git reviewer export \[repository\]/);
+  assert.doesNotMatch(text.replace(/One program, two names[\s\S]*?manual page instead\./, ''), /^ {2}reviewer /m,
+    'no example uses the other name');
+  assert.match(usage('reviewer'), /\n {2}reviewer \| claude -p/);
+});
+
+test('usage says why --help under git opens a man page', () => {
+  assert.match(USAGE, /git reviewer --help opens the\s+manual page/);
 });

@@ -6,6 +6,28 @@ adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
 ## [Unreleased]
 
+### Changed
+
+- **`git reviewer` is the name to type.** The package is `git-reviewer` and
+  the docs led with `reviewer`, so the name you installed was not the name you
+  typed. Git runs any `git-<name>` on your PATH as a subcommand, so the
+  installed name *is* a command: the README and `--help` now lead with
+  `git reviewer`. `reviewer` still works and is documented as the same program
+  under a shorter name — `reviewer` itself is taken on npm, so the package
+  cannot be renamed to match it.
+- Help text and hints are printed in terms of the command that was actually
+  run — `git reviewer`, `git-reviewer`, `reviewer`, or `npx git-reviewer` — so
+  a suggested command can be pasted back as it is. The `npx` case matters most:
+  neither bare name is on the PATH there, and the old hint told npx users to
+  run a command they did not have.
+
+### Fixed
+
+- **`git reviewer --help` said "No manual entry for git-reviewer".** Git reads
+  `--help` on any subcommand as a request for its manual page, and there was
+  none. The package ships `man/git-reviewer.1` now, which npm links in next to
+  the command. `git reviewer -h` prints the usage, as `reviewer --help` does.
+
 ## [2.13.0] - 2026-09-24
 
 ### Added
