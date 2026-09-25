@@ -6,6 +6,8 @@ adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
 ## [Unreleased]
 
+## [2.13.1] - 2026-09-25
+
 ### Changed
 
 - **`git reviewer` is the name to type.** The package is `git-reviewer` and
@@ -744,7 +746,8 @@ Initial release: Electron desktop app and web mode for reviewing local git
 changes with inline comments, threaded follow-ups, persistent storage, and a
 GitHub-style diff view.
 
-[Unreleased]: https://github.com/dheerajjha/reviewer/compare/v2.13.0...HEAD
+[Unreleased]: https://github.com/dheerajjha/reviewer/compare/v2.13.1...HEAD
+[2.13.1]: https://github.com/dheerajjha/reviewer/compare/v2.13.0...v2.13.1
 [2.13.0]: https://github.com/dheerajjha/reviewer/compare/v2.12.0...v2.13.0
 [2.12.0]: https://github.com/dheerajjha/reviewer/compare/v2.11.0...v2.12.0
 [2.11.0]: https://github.com/dheerajjha/reviewer/compare/v2.10.0...v2.11.0
