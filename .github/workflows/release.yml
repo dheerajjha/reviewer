@@ -89,7 +89,9 @@ jobs:
 
           # The entry points, which are named because they are named in
           # package.json and would not be found by a glob over lib/.
-          for required in package/bin/reviewer.js package/server.js package/public/index.html package/public/app.js package/public/style.css; do
+          # man/git-reviewer.1 is what `git reviewer --help` opens; without it
+          # git answers "No manual entry for git-reviewer".
+          for required in package/bin/reviewer.js package/server.js package/public/index.html package/public/app.js package/public/style.css package/man/git-reviewer.1; do
             grep -qx "$required" /tmp/files.txt || { echo "::error::$required missing from the tarball"; exit 1; }
           done
 

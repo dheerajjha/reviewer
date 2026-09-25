@@ -1,0 +1,80 @@
+.\" Manual page for git-reviewer. git opens this for `git reviewer --help`,
+.\" because it reads --help on any subcommand as a request for its man page.
+.TH GIT-REVIEWER 1 "2026-09-25" "git-reviewer" "User Commands"
+.SH NAME
+git-reviewer, reviewer \- review local git changes in your browser, and hand the review to a coding agent
+.SH SYNOPSIS
+.B git reviewer
+.RI [ repository ]
+.RB [ \-p
+.IR port ]
+.RB [ \-\-no\-open ]
+.br
+.B git reviewer export
+.RI [ repository ]
+.RB [ \-\-format
+.IR json | prompt ]
+.RB [ \-\-file
+.IR path ]
+.SH DESCRIPTION
+Opens the uncommitted changes of a git repository, or its last commit on a
+clean tree, as a pull-request style review in your browser: inline comments
+on any line, threaded follow-ups, and comparisons between branches, tags and
+commits \(em reviewed together, one at a time, or as a run.
+.PP
+With something reading its output, it writes the finished review there the
+moment you submit it, and exits:
+.PP
+.RS
+.B git reviewer | claude \-p "Apply this review."
+.RE
+.PP
+On a terminal it says where the review was saved and keeps serving until
+the tab is closed.
+.PP
+The package is installed as
+.BR git\-reviewer ,
+which git runs as
+.BR "git reviewer" .
+.B reviewer
+is the same program under a shorter name.
+.SH COMMANDS
+.TP
+.B export
+Print the saved review of a repository to stdout, as JSON or as a prompt for
+a coding agent.
+.SH OPTIONS
+.TP
+.BR \-p ", " \-\-port " \fIn\fR"
+Port to listen on. The default is 4500; if it is taken, a free one is used.
+.TP
+.B \-\-no\-open
+Print the address instead of opening a browser.
+.TP
+.BR \-f ", " \-\-format " \fIjson\fR|\fIprompt\fR"
+Export format. The default is json.
+.TP
+.BI \-\-file " path"
+Export only the comments on one repository-relative file.
+.TP
+.BR \-h ", " \-\-help
+Print usage. Under git, use
+.BR \-h :
+git takes
+.B \-\-help
+to mean this page.
+.TP
+.BR \-v ", " \-\-version
+Print the version.
+.SH EXAMPLES
+.TP
+.B git reviewer
+Review the repository you are standing in.
+.TP
+.B git reviewer | claude \-p """Apply this review."""
+Review it, then hand it straight to an agent.
+.TP
+.B git reviewer export . \-\-format prompt | claude \-p """Apply this review."""
+Hand over a review written earlier.
+.SH SEE ALSO
+https://github.com/dheerajjha/reviewer
