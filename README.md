@@ -423,10 +423,17 @@ The ones most likely to change how the tool feels:
 - [#2](https://github.com/dheerajjha/reviewer/issues/2) — give comments a state, so a review can be worked through and marked off
 - [#3](https://github.com/dheerajjha/reviewer/issues/3) — report whether each anchor still matches the file
 - [#4](https://github.com/dheerajjha/reviewer/issues/4) — expose the review over MCP, so an agent works through it interactively
-- [#6](https://github.com/dheerajjha/reviewer/issues/6) — review a commit range, not just the working tree
+- [#6](https://github.com/dheerajjha/reviewer/issues/6) — open straight into a comparison from the command line, `git reviewer --range main...HEAD`
 
 [CONTRIBUTING.md](CONTRIBUTING.md) covers the setup and what a good change looks
 like here.
+
+## Related
+
+[margins](https://github.com/dheerajjha/margins) is its sibling for notes rather
+than diffs: `margins` in a folder of markdown opens it in the browser, with a
+file tree, `[[wikilinks]]` and backlinks, search, and editing with a live
+preview. `npm install -g margins`.
 
 ## License
 
