@@ -16,6 +16,9 @@ const run = promisify(execFile);
  * same way the code is.
  */
 
+// Git for Windows accepts NUL, but rejects Node's \\.\nul device-path spelling.
+const GIT_CONFIG_NULL = process.platform === 'win32' ? 'NUL' : os.devNull;
+
 /** Deterministic identity and settings, so a developer's global config cannot change a result. */
 const GIT_ENV = {
   ...process.env,
@@ -23,8 +26,8 @@ const GIT_ENV = {
   GIT_AUTHOR_EMAIL: 'test@example.com',
   GIT_COMMITTER_NAME: 'Reviewer Test',
   GIT_COMMITTER_EMAIL: 'test@example.com',
-  GIT_CONFIG_GLOBAL: os.devNull,
-  GIT_CONFIG_SYSTEM: os.devNull
+  GIT_CONFIG_GLOBAL: GIT_CONFIG_NULL,
+  GIT_CONFIG_SYSTEM: GIT_CONFIG_NULL
 };
 
 /**
