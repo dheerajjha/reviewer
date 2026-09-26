@@ -959,7 +959,7 @@ test('GET /api/browse lists the directories inside one and marks repositories', 
 
   await fs.mkdir(path.join(dir, 'notes'), { recursive: true });
   await writeFiles(dir, { 'a-file.txt': 'x\n' });
-  await fs.symlink(repoPath, path.join(dir, 'checkout'));
+  await fs.symlink(repoPath, path.join(dir, 'checkout'), 'dir');
 
   const listing = await (
     await fetch(`${server.url}/api/browse?path=${encodeURIComponent(dir)}`)

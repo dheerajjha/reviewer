@@ -41,7 +41,7 @@ test('recordRecent puts the newest first', async t => {
   await recordRecent(dir, '/work/one');
   await recordRecent(dir, '/work/two');
 
-  assert.deepEqual(paths(await readRecents(dir)), ['/work/two', '/work/one']);
+  assert.deepEqual(paths(await readRecents(dir)), [path.resolve('/work/two'), path.resolve('/work/one')]);
 });
 
 test('reopening a repository moves it to the front instead of duplicating it', async t => {
@@ -52,7 +52,7 @@ test('reopening a repository moves it to the front instead of duplicating it', a
   await recordRecent(dir, '/work/two');
   await recordRecent(dir, '/work/one');
 
-  assert.deepEqual(paths(await readRecents(dir)), ['/work/one', '/work/two']);
+  assert.deepEqual(paths(await readRecents(dir)), [path.resolve('/work/one'), path.resolve('/work/two')]);
 });
 
 test('the list is capped, dropping the least recently opened', async t => {
@@ -63,7 +63,7 @@ test('the list is capped, dropping the least recently opened', async t => {
 
   const recorded = await readRecents(dir);
   assert.equal(recorded.length, LIMIT);
-  assert.equal(recorded[0].path, `/work/repo-${LIMIT + 4}`);
+  assert.equal(recorded[0].path, path.resolve(`/work/repo-${LIMIT + 4}`));
   assert.doesNotMatch(JSON.stringify(recorded), /repo-0"/);
 });
 
@@ -78,7 +78,7 @@ test('a damaged recents file costs the convenience, not the repository', async t
 
   // And recording over the damage repairs it rather than throwing.
   await recordRecent(dir, '/work/one');
-  assert.deepEqual(paths(await readRecents(dir)), ['/work/one']);
+  assert.deepEqual(paths(await readRecents(dir)), [path.resolve('/work/one')]);
 });
 
 test('entries of the wrong shape are dropped, the rest of the list survives', async t => {
@@ -130,10 +130,10 @@ test('describeRecents reports how many comments are saved against each', async t
   await recordRecent(dir, '/work/api');
   await recordRecent(dir, '/work/web');
 
-  const described = await describeRecents(dir, new Map([['/work/api', 3]]));
+  const described = await describeRecents(dir, new Map([[path.resolve('/work/api'), 3]]));
 
   assert.deepEqual(
     described.map(project => [project.path, project.comments]),
-    [['/work/web', 0], ['/work/api', 3]]
+    [[path.resolve('/work/web'), 0], [path.resolve('/work/api'), 3]]
   );
 });
