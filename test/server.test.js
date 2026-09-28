@@ -35,7 +35,12 @@ async function startTestServer(options = {}) {
     url: `http://127.0.0.1:${server.address().port}`,
     reviewsDir,
     close: async () => {
-      await new Promise(resolve => server.close(resolve));
+      const closed = new Promise(resolve => server.close(resolve));
+      // fetch() keeps its socket alive between requests. Node 19+ closes idle
+      // sockets in close(); Node 18 waits out keepAliveTimeout (5s) instead,
+      // which cost every server test five seconds there.
+      server.closeIdleConnections?.();
+      await closed;
       await cleanup(reviewsDir);
     }
   };
