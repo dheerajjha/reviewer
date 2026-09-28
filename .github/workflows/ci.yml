@@ -20,13 +20,12 @@ jobs:
     strategy:
       fail-fast: false
       matrix:
-        # Windows is absent on purpose: its runners never picked up a job here,
-        # and a matrix leg that never runs is worse than one that is not
-        # claimed. The Windows-specific code paths (`cmd /c start` for opening
-        # a browser, `os.devNull` for git config) are unit-tested on every
-        # platform, and a Windows leg is welcome from anyone whose account can
-        # actually schedule one.
-        os: [ubuntu-latest, macos-latest]
+        # Windows was dropped in August 2026, when its jobs sat in the queue
+        # for six hours without a runner. It came back once #91 made the suite
+        # pass there and a probe run showed runners picking the jobs up. If
+        # they stop again, the timeout above fails the leg in fifteen minutes
+        # instead of blocking every pull request for six hours.
+        os: [ubuntu-latest, macos-latest, windows-latest]
         node: ['18', '20', '22']
     steps:
       - uses: actions/checkout@v4
