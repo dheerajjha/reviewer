@@ -6,6 +6,12 @@ adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
 ## [Unreleased]
 
+### Fixed
+
+- Windows test fixtures now use a null-device path Git accepts, native path
+  expectations and explicitly typed directory links, allowing the HTTP and CLI
+  tests to run past repository setup.
+
 ## [2.13.1] - 2026-09-25
 
 ### Changed

@@ -128,7 +128,7 @@ test('a symlinked checkout reads the same review as its real path', async () => 
   const dir = await reviewsDir();
   const real = await fs.mkdtemp(path.join(os.tmpdir(), 'reviewer-real-'));
   const link = path.join(await fs.mkdtemp(path.join(os.tmpdir(), 'reviewer-link-')), 'api');
-  await fs.symlink(real, link);
+  await fs.symlink(real, link, 'dir');
 
   await write(dir, commentsFilename(real), { repoPath: real, comments: [COMMENT] });
 

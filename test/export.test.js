@@ -165,10 +165,10 @@ test('every repository with a saved review is listed', async () => {
   assert.equal(listed.length, 2);
   assert.deepEqual(
     listed.map(r => r.repoPath).sort(),
-    ['/work/api', '/work/web']
+    [path.resolve('/work/api'), path.resolve('/work/web')]
   );
-  assert.equal(listed.find(r => r.repoPath === '/work/web').comments, 2);
-  assert.equal(listed.find(r => r.repoPath === '/work/api').name, 'api');
+  assert.equal(listed.find(r => r.repoPath === path.resolve('/work/web')).comments, 2);
+  assert.equal(listed.find(r => r.repoPath === path.resolve('/work/api')).name, 'api');
 });
 
 test('listings are newest first', async () => {
@@ -179,7 +179,7 @@ test('listings are newest first', async () => {
 
   const listed = await listReviews(dir);
 
-  assert.equal(listed[0].repoPath, '/work/new');
+  assert.equal(listed[0].repoPath, path.resolve('/work/new'));
 });
 
 test('two checkouts of the same name are listed separately', async () => {
@@ -212,7 +212,7 @@ test('a damaged comment file is skipped rather than failing the listing', async 
   const listed = await listReviews(dir);
 
   assert.equal(listed.length, 1);
-  assert.equal(listed[0].repoPath, '/work/api');
+  assert.equal(listed[0].repoPath, path.resolve('/work/api'));
 });
 
 test('a file recording a repository that disagrees with its own name is not listed', async () => {

@@ -193,25 +193,25 @@ function copyMissing(from, to) {
 }
 
 test('homeRelative writes the home directory as ~', () => {
-  const home = '/Users/someone';
+  const home = path.resolve('/Users/someone');
 
-  assert.equal(homeRelative('/Users/someone/work/api', home), '~/work/api');
+  assert.equal(homeRelative('/Users/someone/work/api', home), path.join('~', 'work', 'api'));
   assert.equal(homeRelative('/Users/someone', home), '~');
 });
 
 test('homeRelative leaves a path outside the home directory alone', () => {
-  const home = '/Users/someone';
+  const home = path.resolve('/Users/someone');
 
-  assert.equal(homeRelative('/opt/src/api', home), '/opt/src/api');
+  assert.equal(homeRelative('/opt/src/api', home), path.resolve('/opt/src/api'));
   // A sibling whose name merely starts with the home directory's is not
   // inside it: `/Users/someone-else` must not become `~-else`.
-  assert.equal(homeRelative('/Users/someone-else/api', home), '/Users/someone-else/api');
+  assert.equal(homeRelative('/Users/someone-else/api', home), path.resolve('/Users/someone-else/api'));
 });
 
 test('homeRelative resolves before comparing, and survives nonsense', () => {
-  const home = '/Users/someone';
+  const home = path.resolve('/Users/someone');
 
-  assert.equal(homeRelative('/Users/someone/work/../work/api', home), '~/work/api');
+  assert.equal(homeRelative('/Users/someone/work/../work/api', home), path.join('~', 'work', 'api'));
   assert.equal(homeRelative('', home), process.cwd());
   assert.equal(homeRelative(null, home), process.cwd());
 });

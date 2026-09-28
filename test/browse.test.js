@@ -36,7 +36,7 @@ test('browse marks which directories are repositories', async t => {
   await makeDirs(dir, ['plain']);
   const repoPath = await createTempRepo();
   t.after(() => cleanup(repoPath));
-  await fs.symlink(repoPath, path.join(dir, 'checkout'));
+  await fs.symlink(repoPath, path.join(dir, 'checkout'), 'dir');
 
   const listing = await browse(dir);
 
@@ -81,8 +81,8 @@ test('browse follows a symlink to a directory and skips a dangling one', async t
     await cleanup(target);
   });
 
-  await fs.symlink(target, path.join(dir, 'elsewhere'));
-  await fs.symlink(path.join(target, 'gone'), path.join(dir, 'broken'));
+  await fs.symlink(target, path.join(dir, 'elsewhere'), 'dir');
+  await fs.symlink(path.join(target, 'gone'), path.join(dir, 'broken'), 'dir');
 
   assert.deepEqual(names(await browse(dir)), ['elsewhere']);
 });
