@@ -86,10 +86,8 @@ file, use it, and add a test that the endpoint refuses
   declarations, which is what that test counts — not the total `node --test`
   prints, which is one higher because it scores `test/helpers/repo.js` as a
   test.
-- CI must be green: tests run on Linux and macOS across Node 18, 20, and 22.
-  Windows is not in the matrix — its runners never picked up a job on this
-  repository — so if you are on Windows, say so in the pull request, since your
-  local run is the only signal we get.
+- CI must be green: tests run on Linux, macOS and Windows across Node 18, 20,
+  and 22.
 
 ## Reporting a bug
 
