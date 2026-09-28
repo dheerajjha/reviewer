@@ -16,6 +16,10 @@ adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
 - CI runs the suite on Windows as well as Linux and macOS, across Node 18, 20
   and 22.
+- The Node 18 CI legs take under a minute instead of eight. Test servers
+  now close idle keep-alive sockets when they shut down. Node 19 and later do
+  that inside `close()`; Node 18 waited out the five-second `keepAliveTimeout`
+  instead, once per server test.
 
 ## [2.13.1] - 2026-09-25
 
