@@ -60,9 +60,12 @@ test's number, not the runner's total.**
 
 There is no linter and no build step;
 three runtime dependencies, and the project would like to keep it that way.
-CI is `ci.yml` on Linux and macOS across Node 18/20/22. Windows is absent on
-purpose — its runners never picked up a job — and that is documented in the
-workflow rather than left to be rediscovered.
+CI is `ci.yml` on Linux, macOS and Windows across Node 18/20/22. Windows was
+out of the matrix from August to September 2026, because its runners never
+picked up a job then. It came back after #91 made the suite pass there and a
+probe run got runners within seconds. The workflow's comment keeps that
+history, and `timeout-minutes` fails a leg that cannot get a runner in fifteen
+minutes rather than six hours.
 
 ## 3. Traps
 

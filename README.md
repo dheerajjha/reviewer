@@ -399,7 +399,7 @@ temporary directory. The HTTP tests do not stub git: each one builds a real
 repository in a temp directory and runs real `git` against it, because diff
 parsing is exactly where a stub would be wrong in the same way the code is.
 
-Tests run on Linux and macOS across Node 18, 20, and 22. See
+Tests run on Linux, macOS and Windows across Node 18, 20, and 22. See
 [CONTRIBUTING.md](CONTRIBUTING.md).
 
 ## Tech

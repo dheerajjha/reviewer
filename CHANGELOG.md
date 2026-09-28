@@ -12,6 +12,11 @@ adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
   expectations and explicitly typed directory links, allowing the HTTP and CLI
   tests to run past repository setup.
 
+### Changed
+
+- CI runs the suite on Windows as well as Linux and macOS, across Node 18, 20
+  and 22.
+
 ## [2.13.1] - 2026-09-25
 
 ### Changed
