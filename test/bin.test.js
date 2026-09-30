@@ -198,7 +198,7 @@ test('export --file refuses when that file has no comments', async t => {
   assert.match(stderr, /no comments for src\/missing\.js/);
 });
 
-test('it serves the repository it was pointed at, then stops on SIGINT', async t => {
+test('it serves a staged review of the requested repository, then stops on SIGINT', async t => {
   const repoPath = await createTempRepo();
   t.after(() => cleanup(repoPath));
 
@@ -207,7 +207,7 @@ test('it serves the repository it was pointed at, then stops on SIGINT', async t
   // Port 0 keeps concurrent test runs from colliding.
   const child = require('node:child_process').spawn(
     process.execPath,
-    [BIN, repoPath, '--no-open', '--port', '0'],
+    [BIN, repoPath, '--staged', '--no-open', '--port', '0'],
     { stdio: ['ignore', 'pipe', 'pipe'] }
   );
   t.after(() => child.kill('SIGKILL'));
@@ -230,6 +230,7 @@ test('it serves the repository it was pointed at, then stops on SIGINT', async t
 
   // The URL carries the repository, so the page loads it without being typed.
   assert.equal(new URL(url).searchParams.get('repo'), repoPath);
+  assert.equal(new URL(url).searchParams.get('staged'), '1');
 
   const health = await fetch(`${new URL(url).origin}/api/health`);
   assert.equal(health.status, 200);

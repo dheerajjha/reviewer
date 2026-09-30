@@ -51,6 +51,10 @@ Port to listen on. The default is 4500; if it is taken, a free one is used.
 .B \-\-no\-open
 Print the address instead of opening a browser.
 .TP
+.B \-\-staged
+Review only staged changes, comparing HEAD with the index. Unstaged edits are
+excluded, and an empty index comparison does not fall back to the last commit.
+.TP
 .BR \-f ", " \-\-format " \fIjson\fR|\fIprompt\fR"
 Export format. The default is json.
 .TP

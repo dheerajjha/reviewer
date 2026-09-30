@@ -12,7 +12,7 @@ const {
   resolveRepoFile,
   PathEscapeError
 } = require('./lib/paths');
-const { collectWorkingChanges, collectCommitChanges, parseNameStatus } = require('./lib/changes');
+const { collectWorkingChanges, collectStagedChanges, collectCommitChanges, parseNameStatus } = require('./lib/changes');
 const { SessionStore } = require('./lib/sessions');
 const { normalizeComments } = require('./lib/comments');
 const { formatReview, reviewFilename, commentsFilename } = require('./lib/review');
@@ -137,6 +137,18 @@ function createApp(options = {}) {
     const git = gitFactory(session.repoPath);
     const absolutePath = resolveRepoFile(session.repoPath, filePath);
 
+    if (session.mode === 'staged') {
+      try {
+        // `:0:` names the stage outright. A bare `:` reads a file called
+        // `0:foo` as stage 0 of `foo`, and shows the wrong file's text.
+        return await git.show([`:0:${filePath}`]);
+      } catch {
+        // A staged deletion has no index entry. Its old content comes from
+        // HEAD, even if a replacement now exists in the working tree.
+        return git.show([`HEAD:${filePath}`]).catch(() => { throw new FileNotFoundError(filePath); });
+      }
+    }
+
     if (session.range) {
       // A range is two commits, and the working tree is neither of them. It
       // used to be the fallback here, which was merely odd while the head of
@@ -222,6 +234,9 @@ function createApp(options = {}) {
   }
 
   async function diffForFile(git, session, filePath) {
+    if (session.mode === 'staged') {
+      return git.diff(['--cached', '--', filePath]);
+    }
     if (session.range) {
       return git.diff([session.range.from, session.range.head, '--', filePath]);
     }
@@ -768,7 +783,10 @@ function createApp(options = {}) {
       // Resolve to the root of the working tree before anything is keyed on
       // this path. A subdirectory passes `checkIsRepo()` quite happily and
       // then produces a file list whose diffs are all empty; see lib/repo.js.
-      const { base, head, commits: run } = req.body ?? {};
+      const { base, head, commits: run, staged = false } = req.body ?? {};
+      if (typeof staged !== 'boolean' || (staged && (base != null || head != null || run != null))) {
+        return res.status(400).json({ error: 'Choose staged changes or a commit comparison, not both.' });
+      }
       const root = await repoRoot(repoPath, gitFactory);
       if (!root) {
         return res.status(400).json({ error: 'Not a valid git repository' });
@@ -781,7 +799,15 @@ function createApp(options = {}) {
       let range = null;
       let message;
 
-      if (run && typeof run === 'object') {
+      if (staged) {
+        try {
+          files = await collectStagedChanges(git);
+        } catch (error) {
+          return res.status(400).json({ error: error.message });
+        }
+        mode = 'staged';
+        message = files.length ? `Found ${files.length} staged file(s)` : 'No staged changes';
+      } else if (run && typeof run === 'object') {
         // Commits themselves, one or a run: see resolveCommitRun.
         try {
           range = await resolveCommitRun(git, `${run.from ?? ''}`.trim(), `${run.to ?? run.from ?? ''}`.trim());

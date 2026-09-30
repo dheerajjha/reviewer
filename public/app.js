@@ -2,6 +2,7 @@
 // In web mode, this will be http://localhost:4500
 // In Electron, this will be the random port Electron assigned
 const API_BASE = `${window.location.origin}/api`;
+const stagedByDefault = new URLSearchParams(window.location.search).get('staged') === '1';
 
 let currentRepoId = null;
 let currentFiles = [];
@@ -492,10 +493,10 @@ function renderScope(data) {
       document.getElementById('nextCommitBtn').disabled = true;
     }
   } else {
-    label.append('Uncommitted changes');
+    label.append(data.mode === 'staged' ? 'Staged changes' : 'Uncommitted changes');
     if (branch) label.append(' on ', strong(branch));
     meta.textContent = plural(data.files.length, 'file') + ' changed';
-    setNote(null);
+    setNote(data.mode === 'staged' ? 'The diff excludes unstaged changes. Saved comments are shared between views and may refer to other code; check their anchors.' : null);
   }
 
   row.classList.add('hidden');
@@ -781,7 +782,7 @@ async function loadRepo(scope = {}) {
       body: JSON.stringify(
         scope.commits ? { repoPath, commits: scope.commits }
           : scope.base ? { repoPath, base: scope.base, ...(scope.head ? { head: scope.head } : {}) }
-            : { repoPath }
+            : { repoPath, staged: stagedByDefault }
       )
     });
 
@@ -817,13 +818,13 @@ async function loadRepo(scope = {}) {
       // `message`, and the scope bar above is still showing how many commits
       // that covers -- so this is information, not an error, and it must not
       // be dressed as one.
-      if (data.mode === 'range') {
+      if (data.mode === 'range' || data.mode === 'staged') {
         // The scope bar is already explaining this; a status line repeating
         // it underneath is two bars saying one thing.
         clearStatus();
         hidePicker();
         displayFiles([]);
-        showEmptyFileList(data.range?.kind !== 'commits'
+        showEmptyFileList(data.mode === 'staged' ? 'No staged changes.' : data.range?.kind !== 'commits'
           ? 'No files differ between these two.'
           : data.range.first === data.range.last
             ? 'This commit changes no files.'

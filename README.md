@@ -3,7 +3,7 @@
 [![CI](https://github.com/dheerajjha/reviewer/actions/workflows/ci.yml/badge.svg)](https://github.com/dheerajjha/reviewer/actions/workflows/ci.yml)
 [![License: MIT](https://img.shields.io/badge/license-MIT-blue.svg)](LICENSE)
 [![Node](https://img.shields.io/badge/node-%3E%3D18-brightgreen.svg)](package.json)
-[![Tests](https://img.shields.io/badge/tests-359-brightgreen.svg)](test/)
+[![Tests](https://img.shields.io/badge/tests-372-brightgreen.svg)](test/)
 [![Dependencies](https://img.shields.io/badge/dependencies-3-brightgreen.svg)](package.json)
 
 When an agent writes the code, reading it becomes the bottleneck — and the tool
@@ -77,6 +77,7 @@ git reviewer export [repository] [--format json|prompt]
   -p, --port <n>    Port to listen on (default 4500; falls back to a free
                     port if that one is taken)
       --no-open     Print the URL instead of opening a browser
+      --staged      Review only staged changes (HEAD vs index)
   -f, --format <f>  Export format: json (default) or prompt
   -h, --help        Show help
   -v, --version     Show the version
@@ -90,6 +91,15 @@ git reviewer . --port 8080  # somewhere other than 4500
 ```
 
 Two at once is fine — the second one finds its own port.
+
+Use `git reviewer --staged` to review what the next commit would contain.
+The file list, diff and full context come from the index, so edits made after
+`git add` stay out of the view. An empty index comparison stays empty; it does
+not fall back to the last commit. The scope bar and exported review identify
+this as a staged review. The default command still shows all working-tree
+changes. As with the default view, reload after changing what is staged. Saved comments
+are shared between views and may refer to code outside the current comparison;
+check their anchors before applying them.
 
 ### When you are not standing in a repository
 
@@ -372,7 +382,7 @@ rather than a public issue.
 
 ```bash
 npm install           # 3 dependencies, no build step, ~6MB
-npm test              # 359 tests
+npm test              # 372 tests
 npm run test:watch
 npm run test:coverage
 ```
