@@ -44,7 +44,8 @@ test('the scope bar distinguishes staged changes from all uncommitted work', () 
   });
   render({ mode: 'staged', files: [{ path: 'app.js' }] });
   assert.equal(document.getElementById('scopeLabel').textContent, 'Staged changes');
-  assert.match(document.getElementById('scopeNote').textContent, /Unstaged changes are excluded/);
+  assert.match(document.getElementById('scopeNote').textContent, /diff excludes unstaged changes/);
+  assert.match(document.getElementById('scopeNote').textContent, /Saved comments are shared between views/);
   render({ mode: 'working', files: [{ path: 'app.js' }] });
   assert.equal(document.getElementById('scopeLabel').textContent, 'Uncommitted changes');
   assert.equal(document.getElementById('scopeNote').textContent, '');

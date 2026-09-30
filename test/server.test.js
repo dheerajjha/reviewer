@@ -2068,3 +2068,43 @@ test('a staged review asks for merge conflicts to be resolved first', async t =>
   assert.equal(status, 400);
   assert.match(body.error, /Resolve merge conflicts/);
 });
+
+
+test('a staged export preserves older comments and explains their shared scope', async t => {
+  const server = await startTestServer();
+  const repoPath = await createTempRepo();
+  t.after(async () => { await server.close(); await cleanup(repoPath); });
+  await commitFiles(repoPath, { 'app.js': 'before\n' }, 'initial');
+  await writeFiles(repoPath, { 'app.js': 'staged\n' });
+  await git(repoPath, ['add', 'app.js']);
+  await writeFiles(repoPath, { 'scratch.txt': 'unstaged note target\n' });
+  const ordinary = await loadRepo(server.url, repoPath);
+  const previous = { file: 'scratch.txt', line: 1, lineContent: 'unstaged note target', text: 'Keep this note.' };
+  const save = (repoId, comments) => fetch(`${server.url}/api/save-comments`, {
+    method: 'POST', headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ repoId, comments })
+  });
+  assert.equal((await save(ordinary.repoId, [previous])).status, 200);
+
+  const { body: staged } = await loadScope(server.url, { repoPath, staged: true });
+  assert.deepEqual(staged.files, [{ path: 'app.js', status: 'M' }]);
+  const inherited = await (await fetch(`${server.url}/api/load-comments/${staged.repoId}`)).json();
+  assert.equal(inherited.comments[0].file, 'scratch.txt');
+  await save(staged.repoId, [...inherited.comments,
+    { file: 'app.js', line: 1, lineContent: 'staged', text: 'Check this change.' }
+  ]);
+  const submitted = await (await fetch(`${server.url}/api/submit-review`, {
+    method: 'POST', headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ repoId: staged.repoId })
+  })).json();
+  const exported = await loadReviewDocument(server.reviewsDir, repoPath);
+  for (const document of [submitted.review, exported]) {
+    assert.equal(document.mode, 'staged');
+    assert.deepEqual(document.comments.map(c => c.file).sort(), ['app.js', 'scratch.txt']);
+    const prompt = formatPrompt(document);
+    assert.match(prompt, /Comparison: staged changes/);
+    assert.match(prompt, /Saved comments are shared between review views/);
+    assert.match(prompt, /check their anchors before applying them/);
+    assert.doesNotMatch(prompt, /Unstaged changes are not part of this review/);
+  }
+});

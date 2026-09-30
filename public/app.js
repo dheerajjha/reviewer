@@ -496,7 +496,7 @@ function renderScope(data) {
     label.append(data.mode === 'staged' ? 'Staged changes' : 'Uncommitted changes');
     if (branch) label.append(' on ', strong(branch));
     meta.textContent = plural(data.files.length, 'file') + ' changed';
-    setNote(data.mode === 'staged' ? 'HEAD compared with the index. Unstaged changes are excluded.' : null);
+    setNote(data.mode === 'staged' ? 'The diff excludes unstaged changes. Saved comments are shared between views and may refer to other code; check their anchors.' : null);
   }
 
   row.classList.add('hidden');
