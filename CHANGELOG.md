@@ -6,6 +6,11 @@ adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
 ## [Unreleased]
 
+### Added
+
+- `--staged` reviews the index against HEAD, keeping unstaged edits out of the
+  file list, diff and full context. The scope bar and export name that scope.
+
 ### Fixed
 
 - Windows test fixtures now use a null-device path Git accepts, native path

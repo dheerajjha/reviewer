@@ -12,6 +12,8 @@ const { createTempRepo, createTempDir, writeFiles, commitFiles, cleanup, git } =
   require('./helpers/repo');
 const { commentsFilename } = require('../lib/review');
 const { RECENTS_FILE } = require('../lib/recents');
+const { loadReviewDocument } = require('../lib/export');
+const { formatPrompt } = require('../lib/agent');
 
 /**
  * End-to-end coverage of the HTTP surface, against real repositories.
@@ -1935,4 +1937,134 @@ test("the pickers' commits follow the branch being compared, not the checkout", 
   const refs = await (await fetch(`${server.url}/api/refs/${body.repoId}?head=feature/billing`)).json();
 
   assert.deepEqual(refs.commits.map(c => c.subject), ['add billing', 'skeleton']);
+});
+
+
+test('a staged review excludes unstaged edits from the diff and full context', async t => {
+  const server = await startTestServer();
+  const repoPath = await createTempRepo();
+  t.after(async () => { await server.close(); await cleanup(repoPath); });
+  await commitFiles(repoPath, { 'app.js': 'first\nsecond\nthird\n' }, 'initial');
+  await writeFiles(repoPath, { 'app.js': 'first\nFEATURE\nthird\n' });
+  await git(repoPath, ['add', 'app.js']);
+  await writeFiles(repoPath, { 'app.js': 'first\nFEATURE\nDEBUG\n', 'scratch.txt': 'not staged\n' });
+
+  const { body } = await loadScope(server.url, { repoPath, staged: true });
+  assert.equal(body.mode, 'staged');
+  assert.deepEqual(body.files, [{ path: 'app.js', status: 'M' }]);
+  assert.equal(body.range, null);
+  const diff = await (await fetch(`${server.url}/api/file/${body.repoId}/app.js`)).json();
+  assert.match(JSON.stringify(diff.diffLines), /FEATURE/);
+  assert.doesNotMatch(JSON.stringify(diff.diffLines), /DEBUG/);
+  const full = await (await fetch(`${server.url}/api/file-full/${body.repoId}/app.js`)).json();
+  assert.deepEqual(full.lines, ['first', 'FEATURE', 'third', '']);
+
+  const ordinary = await loadRepo(server.url, repoPath);
+  assert.equal(ordinary.mode, 'working');
+  assert.equal(ordinary.files.length, 2);
+  const both = await (await fetch(`${server.url}/api/file/${ordinary.repoId}/app.js`)).json();
+  assert.match(JSON.stringify(both.diffLines), /DEBUG/);
+
+  await fetch(`${server.url}/api/save-comments`, {
+    method: 'POST', headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ repoId: body.repoId, comments: [
+      { file: 'app.js', line: 2, lineContent: 'FEATURE', text: 'Add a test.' }
+    ] })
+  });
+  const document = await loadReviewDocument(server.reviewsDir, repoPath);
+  assert.equal(document.mode, 'staged');
+  assert.match(formatPrompt(document), /staged changes/);
+});
+
+test('a staged addition before the first commit uses the index copy', async t => {
+  const server = await startTestServer();
+  const repoPath = await createTempRepo();
+  t.after(async () => { await server.close(); await cleanup(repoPath); });
+  await writeFiles(repoPath, { 'new.js': 'staged\n' });
+  await git(repoPath, ['add', 'new.js']);
+  await writeFiles(repoPath, { 'new.js': 'unstaged\n', 'scratch.txt': 'untracked\n' });
+  const { body } = await loadScope(server.url, { repoPath, staged: true });
+  assert.equal(body.mode, 'staged');
+  assert.deepEqual(body.files, [{ path: 'new.js', status: 'A' }]);
+  const diff = await (await fetch(`${server.url}/api/file/${body.repoId}/new.js`)).json();
+  assert.match(JSON.stringify(diff.diffLines), /staged/);
+  assert.doesNotMatch(JSON.stringify(diff.diffLines), /unstaged/);
+  const full = await (await fetch(`${server.url}/api/file-full/${body.repoId}/new.js`)).json();
+  assert.deepEqual(full.lines, ['staged', '']);
+});
+
+test('a staged deletion ignores a replacement left in the working tree', async t => {
+  const server = await startTestServer();
+  const repoPath = await createTempRepo();
+  t.after(async () => { await server.close(); await cleanup(repoPath); });
+  await commitFiles(repoPath, { 'gone.js': 'original\n' }, 'initial');
+  await git(repoPath, ['rm', 'gone.js']);
+  await writeFiles(repoPath, { 'gone.js': 'replacement\n' });
+  const { body } = await loadScope(server.url, { repoPath, staged: true });
+  assert.deepEqual(body.files, [{ path: 'gone.js', status: 'D' }]);
+  const full = await (await fetch(`${server.url}/api/file-full/${body.repoId}/gone.js`)).json();
+  assert.deepEqual(full.lines, ['original', '']);
+});
+
+test('a staged rename and binary addition keep their Git statuses', async t => {
+  const server = await startTestServer();
+  const repoPath = await createTempRepo();
+  t.after(async () => { await server.close(); await cleanup(repoPath); });
+  await commitFiles(repoPath, { 'old.txt': 'one\ntwo\nthree\n' }, 'initial');
+  await git(repoPath, ['mv', 'old.txt', 'new.txt']);
+  await writeFiles(repoPath, { 'image.bin': Buffer.from([0, 1, 2, 3]) });
+  await git(repoPath, ['add', 'image.bin']);
+  await writeFiles(repoPath, { 'new.txt': 'unstaged replacement\n' });
+  const { body } = await loadScope(server.url, { repoPath, staged: true });
+  assert.deepEqual(body.files, [{ path: 'image.bin', status: 'B' }, { path: 'new.txt', status: 'R' }]);
+  const full = await (await fetch(`${server.url}/api/file-full/${body.repoId}/new.txt`)).json();
+  assert.deepEqual(full.lines, ['one', 'two', 'three', '']);
+  const binary = await (await fetch(`${server.url}/api/file/${body.repoId}/image.bin`)).json();
+  assert.equal(binary.binary, true);
+  assert.deepEqual(binary.diffLines, []);
+});
+
+test('an empty index comparison never falls back to unstaged work or the last commit', async t => {
+  const server = await startTestServer();
+  const repoPath = await createTempRepo();
+  t.after(async () => { await server.close(); await cleanup(repoPath); });
+  await commitFiles(repoPath, { 'app.js': 'one\n' }, 'initial');
+  await commitFiles(repoPath, { 'app.js': 'two\n' }, 'second');
+  for (const dirty of [false, true]) {
+    if (dirty) await writeFiles(repoPath, { 'app.js': 'unstaged\n' });
+    const { body } = await loadScope(server.url, { repoPath, staged: true });
+    assert.equal(body.mode, 'staged');
+    assert.deepEqual(body.files, []);
+    assert.match(body.message, /No staged changes/);
+  }
+});
+
+test('a staged review rejects conflicting scopes and a non-boolean flag', async t => {
+  const server = await startTestServer();
+  const repoPath = await createTempRepo();
+  t.after(async () => { await server.close(); await cleanup(repoPath); });
+  for (const scope of [
+    { staged: true, base: 'main' },
+    { staged: true, commits: { from: 'HEAD' } },
+    { staged: 'false' }
+  ]) {
+    const { status } = await loadScope(server.url, { repoPath, ...scope });
+    assert.equal(status, 400);
+  }
+});
+
+
+test('a staged review asks for merge conflicts to be resolved first', async t => {
+  const server = await startTestServer();
+  const repoPath = await createTempRepo();
+  t.after(async () => { await server.close(); await cleanup(repoPath); });
+  await commitFiles(repoPath, { 'app.js': 'base\n' }, 'initial');
+  await git(repoPath, ['checkout', '-b', 'other']);
+  await commitFiles(repoPath, { 'app.js': 'other\n' }, 'other');
+  await git(repoPath, ['checkout', 'main']);
+  await commitFiles(repoPath, { 'app.js': 'main\n' }, 'main');
+  await assert.rejects(() => git(repoPath, ['merge', 'other']));
+  const { status, body } = await loadScope(server.url, { repoPath, staged: true });
+  assert.equal(status, 400);
+  assert.match(body.error, /Resolve merge conflicts/);
 });
