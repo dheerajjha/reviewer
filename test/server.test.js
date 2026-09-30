@@ -1976,6 +1976,23 @@ test('a staged review excludes unstaged edits from the diff and full context', a
   assert.match(formatPrompt(document), /staged changes/);
 });
 
+test('staged full context reads the file it names, even one named like an index stage', {
+  skip: process.platform === 'win32' && 'Windows does not allow a colon in a file name'
+}, async t => {
+  // `git show :0:foo` is stage 0 of foo, not the file called 0:foo; before
+  // the stage was named explicitly, this returned foo's text under 0:foo.
+  const server = await startTestServer();
+  const repoPath = await createTempRepo();
+  t.after(async () => { await server.close(); await cleanup(repoPath); });
+  await commitFiles(repoPath, { foo: 'foo\n', '0:foo': 'zero\n' }, 'initial');
+  await writeFiles(repoPath, { foo: 'foo staged\n', '0:foo': 'zero staged\n' });
+  await git(repoPath, ['add', '-A']);
+
+  const { body } = await loadScope(server.url, { repoPath, staged: true });
+  const full = await (await fetch(`${server.url}/api/file-full/${body.repoId}/${encodeURIComponent('0:foo')}`)).json();
+  assert.deepEqual(full.lines, ['zero staged', '']);
+});
+
 test('a staged addition before the first commit uses the index copy', async t => {
   const server = await startTestServer();
   const repoPath = await createTempRepo();

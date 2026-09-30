@@ -139,7 +139,9 @@ function createApp(options = {}) {
 
     if (session.mode === 'staged') {
       try {
-        return await git.show([`:${filePath}`]);
+        // `:0:` names the stage outright. A bare `:` reads a file called
+        // `0:foo` as stage 0 of `foo`, and shows the wrong file's text.
+        return await git.show([`:0:${filePath}`]);
       } catch {
         // A staged deletion has no index entry. Its old content comes from
         // HEAD, even if a replacement now exists in the working tree.
