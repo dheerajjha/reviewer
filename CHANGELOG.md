@@ -6,6 +6,8 @@ adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
 ## [Unreleased]
 
+## [2.14.0] - 2026-09-30
+
 ### Added
 
 - `--staged` reviews the index against HEAD, keeping unstaged edits out of the
@@ -766,7 +768,8 @@ Initial release: Electron desktop app and web mode for reviewing local git
 changes with inline comments, threaded follow-ups, persistent storage, and a
 GitHub-style diff view.
 
-[Unreleased]: https://github.com/dheerajjha/reviewer/compare/v2.13.1...HEAD
+[Unreleased]: https://github.com/dheerajjha/reviewer/compare/v2.14.0...HEAD
+[2.14.0]: https://github.com/dheerajjha/reviewer/compare/v2.13.1...v2.14.0
 [2.13.1]: https://github.com/dheerajjha/reviewer/compare/v2.13.0...v2.13.1
 [2.13.0]: https://github.com/dheerajjha/reviewer/compare/v2.12.0...v2.13.0
 [2.12.0]: https://github.com/dheerajjha/reviewer/compare/v2.11.0...v2.12.0
