@@ -26,7 +26,7 @@ test('every plugin manifest carries the package version and one name', () => {
 });
 
 test('the review skill has the frontmatter agents need', () => {
-  const text = fs.readFileSync(path.join(root, 'skills', 'review', 'SKILL.md'), 'utf8');
+  const text = fs.readFileSync(path.join(root, 'skills', 'review', 'SKILL.md'), 'utf8').replace(/\r\n/g, '\n');
   const fm = /^---\n([\s\S]*?)\n---\n/.exec(text);
   assert.ok(fm);
   assert.match(fm[1], /^name: review$/m);
@@ -35,7 +35,7 @@ test('the review skill has the frontmatter agents need', () => {
 });
 
 test('the skill only tells the agent to run commands the CLI has', () => {
-  const text = fs.readFileSync(path.join(root, 'skills', 'review', 'SKILL.md'), 'utf8');
+  const text = fs.readFileSync(path.join(root, 'skills', 'review', 'SKILL.md'), 'utf8').replace(/\r\n/g, '\n');
   const help = require('node:child_process').spawnSync(process.execPath, [path.join(root, 'bin', 'reviewer.js'), '--help'], { encoding: 'utf8' }).stdout;
   for (const flag of ['--staged', '--format']) {
     assert.ok(text.includes(flag), flag);
