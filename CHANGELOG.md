@@ -6,6 +6,15 @@ adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
 ## [Unreleased]
 
+### Added
+
+- reviewer installs as a plugin in Claude Code, Codex CLI, Cursor and Copilot
+  CLI, and as a skill everywhere else (`npx skills add dheerajjha/reviewer`).
+  The agent opens the review itself, waits for **Submit Review**, then works
+  through every comment. Nothing in the npm package changes; the plugin is
+  installed from this repository.
+- Chinese and Japanese READMEs.
+
 ## [2.14.0] - 2026-09-30
 
 ### Added

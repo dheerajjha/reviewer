@@ -1,0 +1,8 @@
+{
+  "name": "git-reviewer",
+  "description": "Review your coding agent's changes in the browser and hand the review back to it.",
+  "owner": { "name": "Dheeraj Jha", "url": "https://github.com/dheerajjha" },
+  "plugins": [
+    { "name": "git-reviewer", "source": "./", "description": "Comment on your agent's diff in the browser; Submit hands the review back.", "version": "2.14.0", "category": "development" }
+  ]
+}

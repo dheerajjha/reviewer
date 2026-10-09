@@ -1,0 +1,5 @@
+{
+  "name": "git-reviewer",
+  "owner": { "name": "Dheeraj Jha", "url": "https://github.com/dheerajjha" },
+  "plugins": [ { "name": "git-reviewer", "source": "./", "description": "Review your agent's diff in the browser and hand the review back." } ]
+}
