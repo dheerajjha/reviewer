@@ -3,8 +3,10 @@
 [![CI](https://github.com/dheerajjha/reviewer/actions/workflows/ci.yml/badge.svg)](https://github.com/dheerajjha/reviewer/actions/workflows/ci.yml)
 [![License: MIT](https://img.shields.io/badge/license-MIT-blue.svg)](LICENSE)
 [![Node](https://img.shields.io/badge/node-%3E%3D18-brightgreen.svg)](package.json)
-[![Tests](https://img.shields.io/badge/tests-372-brightgreen.svg)](test/)
+[![Tests](https://img.shields.io/badge/tests-375-brightgreen.svg)](test/)
 [![Dependencies](https://img.shields.io/badge/dependencies-3-brightgreen.svg)](package.json)
+
+**English** · [简体中文](docs/README.zh-CN.md) · [日本語](docs/README.ja.md)
 
 When an agent writes the code, reading it becomes the bottleneck — and the tool
 built for reading a diff, the pull request, wants a branch, a remote and a push
@@ -341,6 +343,32 @@ rather than guess when an anchor has vanished.
 Submitting in the UI writes this alongside the `.txt`. The full schema is in
 [docs/agent-format.md](docs/agent-format.md).
 
+## Use it from inside your agent
+
+Installed as a plugin, the agent opens the review itself, waits while you read
+and comment, and works through your comments the moment you press **Submit
+Review**. You never leave the conversation to start it.
+
+```
+/plugin install git-reviewer --marketplace dheerajjha/reviewer
+```
+
+That is Claude Code; then ask to review the changes, or run
+`/git-reviewer:review`. The same skill installs elsewhere:
+
+| Agent | Install |
+|---|---|
+| Codex CLI | `codex plugin marketplace add dheerajjha/reviewer`, then `codex plugin add git-reviewer@git-reviewer` |
+| Cursor | **Customize** → **From GitHub Repository** → `dheerajjha/reviewer` |
+| Copilot CLI | `copilot plugin marketplace add dheerajjha/reviewer`, then `copilot plugin install git-reviewer@git-reviewer` |
+| Anything else | `npx skills add dheerajjha/reviewer` |
+
+The skill is plain instructions, [skills/review/SKILL.md](skills/review/SKILL.md):
+start `git reviewer` in the background, wait for the submit, then apply every
+comment, finding the code a comment quotes rather than trusting its line
+number. Where an agent cannot leave a command running, it asks you to start
+`git reviewer` yourself and reads the result with `git reviewer export`.
+
 ## HTTP API
 
 The UI is a client of this; nothing is hidden from you.
@@ -382,7 +410,7 @@ rather than a public issue.
 
 ```bash
 npm install           # 3 dependencies, no build step, ~6MB
-npm test              # 372 tests
+npm test              # 375 tests
 npm run test:watch
 npm run test:coverage
 ```

@@ -1,0 +1,10 @@
+{
+  "name": "git-reviewer",
+  "displayName": "git reviewer",
+  "version": "2.14.0",
+  "description": "Review your agent's changes like a pull request, in your browser, and hand the review back to it.",
+  "author": { "name": "Dheeraj Jha", "url": "https://github.com/dheerajjha" },
+  "homepage": "https://github.com/dheerajjha/reviewer",
+  "license": "MIT",
+  "skills": "./skills/"
+}
