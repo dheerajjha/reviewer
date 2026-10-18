@@ -4,7 +4,7 @@ const test = require('node:test');
 const assert = require('node:assert/strict');
 const path = require('node:path');
 
-const simpleGit = require('simple-git');
+const { simpleGit } = require('simple-git');
 
 const { repoRoot } = require('../lib/repo');
 const {

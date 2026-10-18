@@ -2,7 +2,7 @@
 
 const express = require('express');
 const cors = require('cors');
-const simpleGit = require('simple-git');
+const { simpleGit } = require('simple-git');
 const fs = require('fs').promises;
 const path = require('path');
 
@@ -25,6 +25,39 @@ const { listReviews } = require('./lib/export');
 
 const DEFAULT_PORT = 4500;
 const DEFAULT_HOST = '127.0.0.1';
+
+// Addresses that only this machine can reach. Bound to one of these, the
+// server installs `loopbackHostOnly`.
+const LOOPBACK_ADDRESSES = new Set(['127.0.0.1', 'localhost', '::1']);
+
+// The names a browser puts in `Host` for a server it reached on loopback.
+// An IPv6 address keeps its brackets there.
+const LOOPBACK_HOSTNAMES = new Set(['127.0.0.1', 'localhost', '[::1]']);
+
+/** The host name in a `Host` header, without the port. */
+function hostnameOf(header) {
+  const value = String(header || '').toLowerCase();
+  if (value.startsWith('[')) return value.slice(0, value.indexOf(']') + 1);
+  return value.split(':')[0];
+}
+
+/**
+ * Refuse a request addressed to this server by any name but a loopback one.
+ *
+ * That is DNS rebinding: a page on the attacker's own domain whose name is
+ * re-pointed at 127.0.0.1 after it loads. The browser then treats this server
+ * as that site, so `Origin` and `Host` agree and `sameOriginOnly` lets the
+ * request through. A server reachable only on loopback is only ever honestly
+ * addressed by a loopback name. Bound anywhere else (`HOST=0.0.0.0`), its
+ * owner has chosen to be reached by other names, and this is not installed.
+ */
+function loopbackHostOnly(req, res, next) {
+  if (!LOOPBACK_HOSTNAMES.has(hostnameOf(req.headers.host))) {
+    return res.status(403).json({ error: 'Not available under this host name' });
+  }
+
+  next();
+}
 
 
 /** A path inside the repository that names nothing, on disk or at HEAD. */
@@ -60,6 +93,8 @@ class FileNotFoundError extends Error {
  *   stop. Omitted means never: a server with no one to tell keeps serving.
  * @param {number} [options.idleGraceMs] how long to wait after the last tab
  *   leaves before deciding it is not coming back.
+ * @param {boolean} [options.loopbackOnly] refuse any request whose `Host` is
+ *   not a loopback name. `startServer` turns it on when it binds to loopback.
  * @returns {import('express').Express}
  */
 // How far back the range picker offers to go. Long enough to cover the work
@@ -86,12 +121,15 @@ function createApp(options = {}) {
     onReviewSubmitted = null,
     handoff = false,
     onIdle = null,
-    idleGraceMs = 5000
+    idleGraceMs = 5000,
+    loopbackOnly = false
   } = options;
 
   const app = express();
 
+  if (loopbackOnly) app.use(loopbackHostOnly);
   app.use(cors());
+  app.use('/api', sameOriginOnly);
   app.use(express.json({ limit: '10mb' }));
   app.use(express.static(path.join(__dirname, 'public')));
 
@@ -660,20 +698,37 @@ function createApp(options = {}) {
   /**
    * Refuse a request a browser has marked as coming from somewhere else.
    *
-   * `cors()` above is open, deliberately, and that is a settled decision this
-   * does not reopen. It is a rule for the two endpoints below, which differ
-   * from every other one in kind: they enumerate directories and name
-   * projects, rather than answering about a repository whose path the caller
-   * already had. A browser sends `Origin` on exactly the requests where that
-   * distinction matters and omits it on same-origin GETs, so the page keeps
-   * working and a page on another site does not. Anything that is not a
-   * browser can read these directories without asking this server anyway.
+   * Every `/api` route goes through this (#66). Until 2.14.1 only the routes
+   * that enumerate directories did, on the reasoning that the rest answer
+   * about a repository whose path the caller already had. A path is easy to
+   * guess, though, and `cors()` is open, so a page on another site could read
+   * any file in a guessed repository. Worse, it could save a comment into the
+   * review, which `reviewer export` then hands to the coding agent as an
+   * instruction.
+   *
+   * A browser sends `Origin` on every cross-origin request that could do
+   * either, and leaves it out of the page's own same-origin GETs, so the page
+   * keeps working. A client that is not a browser sends no `Origin` and gets
+   * through: it could read these files without asking this server anyway.
+   * Only the host is compared, not the scheme, so the page still works behind
+   * a proxy that terminates TLS.
+   *
+   * This cannot catch DNS rebinding, where `Origin` and `Host` both name the
+   * attacker's domain. `loopbackHostOnly` does.
    */
   function sameOriginOnly(req, res, next) {
     const origin = req.get('origin');
 
-    if (origin && origin !== `http://${req.headers.host}`) {
-      return res.status(403).json({ error: 'Not available to another origin' });
+    if (origin) {
+      let originHost = null;
+      try {
+        originHost = new URL(origin).host;
+      } catch {
+        // `Origin: null` (a sandboxed frame, a file:// page) names no host.
+      }
+      if (originHost !== req.headers.host) {
+        return res.status(403).json({ error: 'Not available to another origin' });
+      }
     }
 
     next();
@@ -686,9 +741,9 @@ function createApp(options = {}) {
    * The connection *is* the signal. An open page holds this response open and
    * closing the page closes it, so there is no heartbeat interval to tune, and
    * two tabs are two connections rather than one flag that either close
-   * clears. `sameOriginOnly` is here for the same reason it is on the two
-   * below: without it a page on another site could hold this open and keep a
-   * server alive that its owner had finished with.
+   * clears. Like every `/api` route it goes through `sameOriginOnly`, which
+   * matters here too: without it a page on another site could hold this open
+   * and keep alive a server its owner had finished with.
    *
    * Nothing happens at the moment a watcher leaves. A reload closes and
    * reopens within milliseconds, and a dropped connection reopens when
@@ -701,7 +756,7 @@ function createApp(options = {}) {
    * after having been above it, so `reviewer` whose browser never launched
    * keeps serving rather than exiting into an empty terminal.
    */
-  app.get('/api/alive', sameOriginOnly, (req, res) => {
+  app.get('/api/alive', (req, res) => {
     if (idleTimer) {
       clearTimeout(idleTimer);
       idleTimer = null;
@@ -733,7 +788,7 @@ function createApp(options = {}) {
   });
 
   /** List the directories inside one, so a repository can be found by looking. */
-  app.get('/api/browse', sameOriginOnly, async (req, res) => {
+  app.get('/api/browse', async (req, res) => {
     try {
       res.json(await browse(req.query.path));
     } catch (error) {
@@ -750,7 +805,7 @@ function createApp(options = {}) {
   });
 
   /** Repositories opened before now, newest first. */
-  app.get('/api/recent', sameOriginOnly, async (req, res) => {
+  app.get('/api/recent', async (req, res) => {
     try {
       // Annotated with what is saved against each, because "3 comments" is
       // what tells you which of two checkouts you were in the middle of.
@@ -1109,8 +1164,9 @@ function startServer(options = {}) {
     ...appOptions
   } = options;
   // Everything else in `options` -- reviewsDir, sessions, git, handoff and
-  // onReviewSubmitted -- goes through to the app.
-  const app = createApp(appOptions);
+  // onReviewSubmitted -- goes through to the app. Bound to loopback, the app
+  // also refuses any Host but a loopback name (see `loopbackHostOnly`).
+  const app = createApp({ loopbackOnly: LOOPBACK_ADDRESSES.has(host), ...appOptions });
 
   return new Promise((resolve, reject) => {
     const server = app.listen(port, host, () => {

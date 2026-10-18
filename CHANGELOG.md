@@ -6,6 +6,33 @@ adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
 ## [Unreleased]
 
+## [2.14.1] - 2026-10-18
+
+### Security
+
+- **No API route answers another origin any more**
+  ([#66](https://github.com/dheerajjha/reviewer/issues/66)).
+  - Until now only directory browsing, recent projects and the liveness stream
+    refused a cross-origin request. While reviewer ran, a page on any other
+    site could load a repository whose path it guessed and read its files.
+  - It could also save a comment into the review, which `reviewer export`
+    then hands to the coding agent as an instruction.
+  - Every `/api` route now refuses a request whose `Origin` names another
+    host. The page itself is unaffected, and so are clients that send no
+    `Origin`, such as curl or an agent running `reviewer export`.
+- **Bound to loopback, the server answers only to `127.0.0.1`, `localhost`
+  and `[::1]`.**
+  - This stops DNS rebinding, where the attacker's own domain is re-pointed at
+    127.0.0.1 and so passes the origin check.
+  - To reach reviewer by another name, bind it elsewhere with `HOST=0.0.0.0`,
+    as before.
+- **simple-git 4.0.2**, which fixes guard bypasses in simple-git 3.36 and
+  earlier that let crafted git options and configuration run commands.
+  simple-git 4 dropped its default export, so reviewer now imports
+  `{ simpleGit }`.
+- express's dependencies move to `qs` 6.16.1, `body-parser` 1.20.8 and
+  `proxy-addr` 2.0.8. `npm audit` reports nothing.
+
 ### Added
 
 - reviewer installs as a plugin in Claude Code, Codex CLI, Cursor and Copilot
@@ -777,7 +804,8 @@ Initial release: Electron desktop app and web mode for reviewing local git
 changes with inline comments, threaded follow-ups, persistent storage, and a
 GitHub-style diff view.
 
-[Unreleased]: https://github.com/dheerajjha/reviewer/compare/v2.14.0...HEAD
+[Unreleased]: https://github.com/dheerajjha/reviewer/compare/v2.14.1...HEAD
+[2.14.1]: https://github.com/dheerajjha/reviewer/compare/v2.14.0...v2.14.1
 [2.14.0]: https://github.com/dheerajjha/reviewer/compare/v2.13.1...v2.14.0
 [2.13.1]: https://github.com/dheerajjha/reviewer/compare/v2.13.0...v2.13.1
 [2.13.0]: https://github.com/dheerajjha/reviewer/compare/v2.12.0...v2.13.0
