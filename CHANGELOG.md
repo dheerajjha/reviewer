@@ -6,6 +6,10 @@ adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
 ## [Unreleased]
 
+### Fixed
+
+- `reviewer export` explains when a path is outside a Git repository and has no saved review.
+
 ## [2.14.1] - 2026-10-18
 
 ### Security

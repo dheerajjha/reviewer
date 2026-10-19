@@ -92,6 +92,9 @@ async function exportReview(options) {
       error instanceof NoMatchingCommentsError ||
       error instanceof ReviewOwnershipError
     ) {
+      if (repoPath === given && error instanceof NoReviewError && !(await repoRoot(given))) {
+        throw new UsageError(`${given} is not inside a git repository, and no review is saved for it.`);
+      }
       throw new UsageError(error.message);
     }
     throw error;

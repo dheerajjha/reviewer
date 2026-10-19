@@ -153,6 +153,33 @@ test('export refuses when the repository has no saved review', async t => {
   assert.match(stderr, /No saved review/);
 });
 
+test('export explains when no review is saved outside a repository', async t => {
+  const dir = await createTempDir();
+  t.after(() => cleanup(dir));
+
+  const { code, stderr } = await run(['export', dir]);
+
+  assert.equal(code, 2);
+  assert.match(stderr, /is not inside a git repository, and no review is saved for it/);
+});
+
+test('export keeps working when a reviewed repository is no longer a repository', async t => {
+  const repoPath = await createTempRepo();
+  t.after(() => cleanup(repoPath));
+
+  const saved = await saveComments(repoPath, [
+    { file: 'src/auth.js', line: 3, lineContent: 'const token = read();', text: 'Check this.' }
+  ]);
+  t.after(() => fs.rm(saved, { force: true }));
+  await fs.rm(path.join(repoPath, '.git'), { recursive: true, force: true });
+
+  const { code, stdout, stderr } = await run(['export', repoPath]);
+
+  assert.equal(code, 0, stderr);
+  const document = JSON.parse(stdout);
+  assert.equal(document.repository.path, repoPath);
+  assert.equal(document.comments.length, 1);
+});
 test('export --file emits only that file and recounts the summary', async t => {
   const repoPath = await createTempRepo();
   t.after(() => cleanup(repoPath));
