@@ -2854,8 +2854,8 @@ function closeHelp() {
  * @returns {boolean}
  */
 function shouldOfferHelp(search, seen) {
-  const query = String(search || '').replace(/^\?/, '');
-  if (query.split('&').includes('intro=0')) return false;
+  // The same reader the page uses for `repo` and `staged`.
+  if (new URLSearchParams(search || '').get('intro') === '0') return false;
   return !seen;
 }
 

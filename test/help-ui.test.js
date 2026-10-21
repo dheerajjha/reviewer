@@ -18,7 +18,9 @@ function lift(name) {
   const code = fs.readFileSync(APP_JS, 'utf-8');
   const match = code.match(new RegExp(`function ${name}\\([^{]*\\{([\\s\\S]*?\\n\\})`));
   if (!match) throw new Error(`Could not find ${name} in app.js`);
-  return vm.runInContext(`${match[0]}\n\n${name};`, vm.createContext({}));
+  // An empty vm context has the language builtins and not the host ones, so
+  // the page's URLSearchParams has to be handed in. The browser already has it.
+  return vm.runInContext(`${match[0]}\n\n${name};`, vm.createContext({ URLSearchParams }));
 }
 
 const shouldOfferHelp = lift('shouldOfferHelp');
