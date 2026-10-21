@@ -253,7 +253,12 @@ async function main() {
     options.port ?? (Number(process.env.PORT) || DEFAULT_PORT),
     { onReviewSubmitted, handoff: handingOff, onIdle }
   );
-  const url = buildUrl(`http://${DEFAULT_HOST}:${server.address().port}`, repoPath, options.staged);
+  const url = buildUrl(
+    `http://${DEFAULT_HOST}:${server.address().port}`,
+    repoPath,
+    options.staged,
+    options.noIntro
+  );
 
   note(`\n  Code Reviewer  ${url}`);
   if (repoPath) note(`  reviewing      ${repoPath}`);

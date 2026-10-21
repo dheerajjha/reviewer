@@ -63,6 +63,7 @@ git reviewer export . --format prompt | claude -p "Apply this review."
 | `git reviewer [路径]` | 审阅某个仓库，默认是当前目录 |
 | `--staged` | 只审阅已暂存的改动 |
 | `--no-open` | 只打印地址，不打开浏览器 |
+| `--no-intro` | 打开评审时不显示第一次的帮助 |
 | `-p, --port <n>` | 监听的端口，默认 4500 |
 | `git reviewer export . --format prompt` | 打印已保存的审阅，交给智能体 |
 

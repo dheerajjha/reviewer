@@ -67,6 +67,7 @@ git reviewer export . --format prompt | claude -p "Apply this review."
 | `git reviewer [パス]` | リポジトリをレビューする(既定はカレントディレクトリ) |
 | `--staged` | ステージ済みの変更だけをレビューする |
 | `--no-open` | ブラウザを開かず URL だけ表示する |
+| `--no-intro` | 初回のヘルプを出さずにレビューを開く |
 | `-p, --port <n>` | 待ち受けポート(既定は 4500) |
 | `git reviewer export . --format prompt` | 保存したレビューを出力してエージェントに渡す |
 

@@ -2843,13 +2843,30 @@ function closeHelp() {
 }
 
 /**
+ * Whether the first-run help should open on its own.
+ *
+ * `intro=0` is an explicit no, for an automation that starts from a fresh
+ * browser every time. Otherwise the dialog opens once per browser, until it
+ * has been seen. Asking for it with the ? button does not come through here.
+ *
+ * @param {string} search location.search, with or without the leading ?
+ * @param {boolean} seen
+ * @returns {boolean}
+ */
+function shouldOfferHelp(search, seen) {
+  const query = String(search || '').replace(/^\?/, '');
+  if (query.split('&').includes('intro=0')) return false;
+  return !seen;
+}
+
+/**
  * Offer it unprompted the first time, once a repository is actually on screen.
  *
  * Not at page load: with nothing open there is nothing to apply it to, and it
  * would be the first thing between somebody and the tool they just started.
  */
 function offerHelpOnce() {
-  if (helpWasSeen()) return;
+  if (!shouldOfferHelp(window.location.search, helpWasSeen())) return;
   openHelp();
 }
 

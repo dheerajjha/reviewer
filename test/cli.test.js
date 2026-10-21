@@ -14,6 +14,7 @@ test('parseArgs defaults to serving, with no repository and an automatic browser
     repoPath: null,
     port: null,
     open: true,
+    noIntro: false,
     staged: false,
     format: 'json',
     file: null,
@@ -32,6 +33,23 @@ test('parseArgs recognises the export subcommand', () => {
 test('a staged review is opt-in and cannot be applied to an existing export', () => {
   assert.equal(parseArgs(['--staged', 'api'], CWD).staged, true);
   assert.throws(() => parseArgs(['export', '--staged'], CWD), /--staged.*serving/);
+});
+
+test('no-intro is opt-in and cannot be applied to an existing export', () => {
+  assert.equal(parseArgs(['--no-intro', 'api'], CWD).noIntro, true);
+  assert.throws(() => parseArgs(['export', '--no-intro'], CWD), /--no-intro.*serving/);
+});
+
+test('no-intro reaches the browser as intro=0 without changing the repository path', () => {
+  const url = new URL(buildUrl('http://127.0.0.1:4500', '/work/a&b', false, true));
+  assert.equal(url.searchParams.get('repo'), '/work/a&b');
+  assert.equal(url.searchParams.get('intro'), '0');
+  assert.equal(url.searchParams.get('staged'), null);
+
+  const both = new URL(buildUrl('http://127.0.0.1:4500', '/work/api', true, true));
+  assert.equal(both.searchParams.get('staged'), '1');
+  assert.equal(both.searchParams.get('intro'), '0');
+  assert.equal(new URL(buildUrl('http://127.0.0.1:4500', null, false, true)).searchParams.get('intro'), '0');
 });
 
 test('the staged flag reaches the browser without changing the repository path', () => {
@@ -168,7 +186,7 @@ test('buildUrl encodes characters that would otherwise split the query', () => {
 });
 
 test('the usage text documents every option the parser accepts', () => {
-  for (const flag of ['--port', '--no-open', '--staged', '--file', '--help', '--version']) {
+  for (const flag of ['--port', '--no-open', '--no-intro', '--staged', '--file', '--help', '--version']) {
     assert.ok(USAGE.includes(flag), `usage should mention ${flag}`);
   }
 });
