@@ -9,23 +9,123 @@ let currentFiles = [];
 let currentFile = null;
 let currentDiffLines = [];
 let comments = [];
+// The `lastUpdated` stamp `comments` was loaded (or last saved) at, and the
+// persisted snapshot that state is based on. Together they are what let a
+// save notice that another tab -- or a writer outside the page -- got there
+// first, and merge instead of overwriting (#107).
+let commentsLastUpdated = null;
+let commentsBase = [];
+
+/** A comment's identity for merging: where it sits and what it says. */
+function commentKey(comment) {
+  return JSON.stringify([comment.file, comment.line, comment.text]);
+}
+
+/** Reduce a live comment to the shape that gets persisted, for `commentsBase`. */
+function toPersistedComment(comment) {
+  const persisted = {
+    file: comment.file,
+    line: comment.line,
+    lineContent: comment.lineContent,
+    text: comment.text
+  };
+  if (comment.selectedText) persisted.selectedText = comment.selectedText;
+  if (Array.isArray(comment.followUps) && comment.followUps.length > 0) {
+    persisted.followUps = comment.followUps;
+  }
+  return persisted;
+}
+
+/**
+ * Merge this tab's comments with comments that arrived from elsewhere.
+ *
+ * `baseComments` is what both sides started from, so it is what tells an
+ * arrival from a local edit apart: a comment in the remote list but not in
+ * the base arrived; a base comment missing on either side was deleted on
+ * that side and stays deleted, unless the other side changed it (a new
+ * follow-up is a change, and losing it would be the bug again); a local
+ * comment missing from the base is new and is kept. Where both sides hold
+ * a comment, the local copy wins, so a follow-up added here is not undone
+ * by the merge.
+ */
+function mergeCommentsForRetry(localComments, baseComments, remoteComments) {
+  const localByKey = new Map(localComments.map(comment => [commentKey(comment), comment]));
+  const baseByKey = new Map(baseComments.map(comment => [commentKey(comment), comment]));
+  const remoteKeys = new Set(remoteComments.map(commentKey));
+  const removedLocally = new Set(
+    baseComments.filter(comment => !localByKey.has(commentKey(comment))).map(commentKey)
+  );
+  const changedLocally = key =>
+    JSON.stringify(toPersistedComment(localByKey.get(key))) !==
+    JSON.stringify(toPersistedComment(baseByKey.get(key)));
+
+  const merged = [];
+  const seen = new Set();
+  for (const remote of remoteComments) {
+    const key = commentKey(remote);
+    if (removedLocally.has(key) || seen.has(key)) continue;
+    merged.push(localByKey.get(key) ?? { ...remote, diffLineIndex: null, matchType: remote.matchType || 'exact' });
+    seen.add(key);
+  }
+  for (const local of localComments) {
+    const key = commentKey(local);
+    if (seen.has(key)) continue;
+    // In the base but not in the remote: deleted elsewhere. Keep it only
+    // when this tab changed it in the meantime.
+    if (baseByKey.has(key) && !remoteKeys.has(key) && !changedLocally(key)) continue;
+    merged.push(local);
+    seen.add(key);
+  }
+  return merged;
+}
 
 // Auto-save comments to backend
 async function saveCommentsToBackend() {
   if (!currentRepoId) return;
 
-  try {
-    await fetch(`${API_BASE}/save-comments`, {
-      method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({
-        repoId: currentRepoId,
-        comments: comments // Send empty array if no comments
-      })
-    });
-  } catch (error) {
-    console.error('Failed to save comments:', error);
+  // On a 409 the file has moved on since this tab loaded: take the current
+  // comments from the refusal, merge them with this tab's, and retry with
+  // the fresh stamp. A bounded number of retries, so two tabs racing in a
+  // loop cannot spin forever; if they are exhausted the next edit saves
+  // again, now based on the merged state.
+  for (let attempt = 0; attempt < 3; attempt++) {
+    try {
+      const response = await fetch(`${API_BASE}/save-comments`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          repoId: currentRepoId,
+          comments: comments, // Send empty array if no comments
+          lastUpdated: commentsLastUpdated
+        })
+      });
+
+      if (response.status === 409) {
+        const data = await response.json().catch(() => ({}));
+        const remoteComments = Array.isArray(data.comments) ? data.comments : [];
+        comments = mergeCommentsForRetry(comments, commentsBase, remoteComments);
+        commentsBase = remoteComments;
+        commentsLastUpdated = data.lastUpdated ?? null;
+        updateCommentsSidebar();
+        continue;
+      }
+
+      if (!response.ok) {
+        console.error('Failed to save comments:', response.status);
+        return;
+      }
+
+      const data = await response.json().catch(() => ({}));
+      if (data.lastUpdated) commentsLastUpdated = data.lastUpdated;
+      commentsBase = comments.map(toPersistedComment);
+      return;
+    } catch (error) {
+      console.error('Failed to save comments:', error);
+      return;
+    }
   }
+
+  console.error('Failed to save comments: still changing elsewhere after retries');
 }
 
 // Load comments from backend
@@ -35,6 +135,8 @@ async function loadCommentsFromBackend() {
   try {
     const response = await fetch(`${API_BASE}/load-comments/${currentRepoId}`);
     const data = await response.json();
+    commentsLastUpdated = data.lastUpdated ?? null;
+    commentsBase = data.comments || [];
     return data.comments || [];
   } catch (error) {
     console.error('Failed to load comments:', error);
@@ -1919,6 +2021,8 @@ function resetApp() {
   currentFile = null;
   currentFileIndex = -1;
   comments = [];
+  commentsLastUpdated = null;
+  commentsBase = [];
 
   document.getElementById('repoPath').value = '';
   setRepoButton(null);
