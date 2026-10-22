@@ -3,7 +3,7 @@
 [![CI](https://github.com/dheerajjha/reviewer/actions/workflows/ci.yml/badge.svg)](https://github.com/dheerajjha/reviewer/actions/workflows/ci.yml)
 [![License: MIT](https://img.shields.io/badge/license-MIT-blue.svg)](LICENSE)
 [![Node](https://img.shields.io/badge/node-%3E%3D18-brightgreen.svg)](package.json)
-[![Tests](https://img.shields.io/badge/tests-385-brightgreen.svg)](test/)
+[![Tests](https://img.shields.io/badge/tests-387-brightgreen.svg)](test/)
 [![Dependencies](https://img.shields.io/badge/dependencies-3-brightgreen.svg)](package.json)
 
 **English** · [简体中文](docs/README.zh-CN.md) · [日本語](docs/README.ja.md)
@@ -389,6 +389,44 @@ The UI is a client of this; nothing is hidden from you.
 | `POST /api/submit-review` | Render the saved comments to a review file |
 | `DELETE /api/cleanup/:repoId` | End the session; files on disk are untouched |
 
+### POST request bodies
+
+`POST /api/load-repo` opens a repository. `repoPath` is required; choose a comparison or staged changes:
+
+```json
+{"repoPath":"/home/you/work/api","base":"main","head":"feature"}
+```
+
+To review a commit range, use `"commits": {"from":"abc123","to":"def456"}` instead of `base`/`head`. To review staged changes, use `"staged": true` without comparison fields. `head` is optional when using `base`.
+
+`POST /api/save-comments` persists comments for an open session:
+
+```json
+{
+  "repoId": "<repoId returned by load-repo>",
+  "comments": [
+    {
+      "file": "src/app.js",
+      "line": 12,
+      "lineContent": "const value = 1;",
+      "text": "Consider renaming this variable.",
+      "selectedText": "const value",
+      "followUps": [{"text":"Please also update its uses.","timestamp":"2026-01-01T00:00:00.000Z"}]
+    }
+  ]
+}
+```
+
+Each comment requires `file` (non-empty string), `line` (positive integer), and `text` (non-empty string). `lineContent`, `selectedText`, and `followUps` are optional.
+
+`POST /api/submit-review` renders the previously saved comments:
+
+```json
+{"repoId":"<repoId returned by load-repo>"}
+```
+
+The startup `--json` output does not include `repoId`: no session exists at startup. A client obtains its own `repoId` by calling `POST /api/load-repo`.
+
 A `repoId` is a random per-session handle, not a path. Requests that resolve
 outside the opened repository are refused, and a path that names nothing gets a
 404.
@@ -411,7 +449,7 @@ rather than a public issue.
 
 ```bash
 npm install           # 3 dependencies, no build step, ~6MB
-npm test              # 385 tests
+npm test              # 387 tests
 npm run test:watch
 npm run test:coverage
 ```

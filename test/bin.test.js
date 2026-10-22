@@ -468,3 +468,57 @@ test('the first byte goes out immediately, not when the review is submitted', as
   // minutes. By the time the banner is up, the pipe must already be held.
   assert.equal(stdout(), '\n');
 });
+test('--json prints one machine-readable startup line on stderr', async () => {
+  const child = require('node:child_process').spawn(
+    process.execPath,
+    [BIN, '--json', '--no-open', '--port', '0'],
+    { stdio: ['ignore', 'pipe', 'pipe'] }
+  );
+
+  try {
+    // The first stderr line is the whole contract: read it, nothing more.
+    const line = await new Promise((resolve, reject) => {
+      let buffered = '';
+      const timer = setTimeout(
+        () => reject(new Error(`no startup line: ${buffered}`)),
+        15000
+      );
+
+      child.stderr.on('data', chunk => {
+        buffered += chunk;
+        const end = buffered.indexOf('\n');
+        if (end === -1) return;
+        clearTimeout(timer);
+        resolve(buffered.slice(0, end));
+      });
+
+      child.once('exit', code => {
+        clearTimeout(timer);
+        reject(new Error(`exited ${code} before printing: ${buffered}`));
+      });
+    });
+
+    const info = JSON.parse(line);
+
+    assert.deepEqual(
+      Object.keys(info).sort(),
+      ['pid', 'port', 'repository', 'url', 'version']
+    );
+    assert.equal(info.pid, child.pid);
+    assert.equal(info.version, require('../package.json').version);
+    assert.ok(Number.isInteger(info.port) && info.port > 0);
+    assert.equal(new URL(info.url).port, String(info.port));
+
+    // The URL it gave is the one actually serving.
+    const health = await fetch(new URL('/api/health', info.url));
+    assert.equal(health.status, 200);
+  } finally {
+    child.kill();
+  }
+});
+
+test('--json is refused outside serving', async () => {
+  const { code, stderr } = await run(['export', '.', '--json']);
+  assert.equal(code, 2);
+  assert.match(stderr, /--json is only valid when serving a review/);
+});

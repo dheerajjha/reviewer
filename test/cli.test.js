@@ -16,6 +16,7 @@ test('parseArgs defaults to serving, with no repository and an automatic browser
     open: true,
     noIntro: false,
     staged: false,
+    json: false,
     format: 'json',
     file: null,
     help: false,
