@@ -419,7 +419,7 @@ test('GET /api/load-comments returns an empty list before anything is saved', as
   const response = await fetch(`${server.url}/api/load-comments/${repoId}`);
 
   assert.equal(response.status, 200);
-  assert.deepEqual(await response.json(), { comments: [] });
+  assert.deepEqual(await response.json(), { comments: [], lastUpdated: null });
 });
 
 test('POST /api/save-comments rejects comments that are not a list', async t => {
@@ -465,6 +465,135 @@ test('POST /api/save-comments rejects a malformed comment and stores nothing', a
 
   const loaded = await (await fetch(`${server.url}/api/load-comments/${repoId}`)).json();
   assert.deepEqual(loaded.comments, []);
+});
+
+test('two sessions saving on one repository both survive, after a 409, a merge and a retry', async t => {
+  // The acceptance test for #107, in the shape the issue spells out for a
+  // conditional save: two tabs (here, two sessions on one repository) load
+  // the same comments, each adds its own, and the second save must not
+  // erase the first tab's comment.
+  const server = await startTestServer();
+  const repoPath = await createTempRepo();
+  t.after(async () => {
+    await server.close();
+    await cleanup(repoPath);
+  });
+
+  await commitFiles(repoPath, { 'app.js': 'a\n' }, 'initial');
+  const tabA = (await loadRepo(server.url, repoPath)).repoId;
+  const tabB = (await loadRepo(server.url, repoPath)).repoId;
+  assert.notEqual(tabA, tabB);
+
+  const save = (repoId, comments, lastUpdated) =>
+    fetch(`${server.url}/api/save-comments`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ repoId, comments, lastUpdated })
+    });
+  const load = async repoId =>
+    (await fetch(`${server.url}/api/load-comments/${repoId}`)).json();
+
+  // Both tabs load the same (empty) review, so both hold the same stamp.
+  const loadedByA = await load(tabA);
+  const loadedByB = await load(tabB);
+  assert.equal(loadedByA.lastUpdated, null);
+  assert.equal(loadedByB.lastUpdated, loadedByA.lastUpdated);
+
+  const commentA = { file: 'app.js', line: 1, lineContent: 'a', text: 'Comment from tab A' };
+  const commentB = { file: 'app.js', line: 1, lineContent: 'a', text: 'Comment from tab B' };
+
+  // Tab A saves first and is handed the new stamp.
+  const savedByA = await save(tabA, [commentA], loadedByA.lastUpdated);
+  assert.equal(savedByA.status, 200);
+  const stampAfterA = (await savedByA.json()).lastUpdated;
+  assert.equal(typeof stampAfterA, 'string');
+
+  // Tab B saves from its stale copy: refused, with A's comment and the
+  // current stamp in the refusal, and nothing of B's stored yet.
+  const refusedByB = await save(tabB, [commentB], loadedByB.lastUpdated);
+  assert.equal(refusedByB.status, 409);
+  const refusal = await refusedByB.json();
+  assert.equal(refusal.lastUpdated, stampAfterA);
+  assert.deepEqual(refusal.comments.map(comment => comment.text), ['Comment from tab A']);
+  assert.deepEqual((await load(tabB)).comments.map(comment => comment.text), ['Comment from tab A']);
+
+  // Tab B merges what the refusal carried with its own comment and retries
+  // against the fresh stamp, the way the page does.
+  const merged = [...refusal.comments, commentB];
+  const retriedByB = await save(tabB, merged, refusal.lastUpdated);
+  assert.equal(retriedByB.status, 200);
+  const stampAfterB = (await retriedByB.json()).lastUpdated;
+  assert.notEqual(stampAfterB, stampAfterA);
+
+  const final = await load(tabA);
+  assert.equal(final.lastUpdated, stampAfterB);
+  assert.deepEqual(final.comments.map(comment => comment.text), [
+    'Comment from tab A',
+    'Comment from tab B'
+  ]);
+});
+
+test('POST /api/save-comments answers 409 for a stale lastUpdated and stores nothing', async t => {
+  const server = await startTestServer();
+  const repoPath = await createTempRepo();
+  t.after(async () => {
+    await server.close();
+    await cleanup(repoPath);
+  });
+
+  await commitFiles(repoPath, { 'app.js': 'a\n' }, 'initial');
+  const { repoId } = await loadRepo(server.url, repoPath);
+
+  const save = (comments, lastUpdated) =>
+    fetch(`${server.url}/api/save-comments`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ repoId, comments, lastUpdated })
+    });
+
+  const first = await save([{ file: 'app.js', line: 1, text: 'first' }], null);
+  assert.equal(first.status, 200);
+  const firstStamp = (await first.json()).lastUpdated;
+
+  const second = await save([{ file: 'app.js', line: 1, text: 'second' }], firstStamp);
+  assert.equal(second.status, 200);
+
+  // The first stamp is stale now: reusing it must not roll the file back.
+  const stale = await save([{ file: 'app.js', line: 1, text: 'stale overwrite' }], firstStamp);
+  assert.equal(stale.status, 409);
+
+  const loaded = await (await fetch(`${server.url}/api/load-comments/${repoId}`)).json();
+  assert.deepEqual(loaded.comments.map(comment => comment.text), ['second']);
+});
+
+test('POST /api/save-comments without a lastUpdated stays unconditional', async t => {
+  // Callers from before conditional saves send no stamp at all. They are
+  // not tabs racing each other, and their saves must keep working as they
+  // always have.
+  const server = await startTestServer();
+  const repoPath = await createTempRepo();
+  t.after(async () => {
+    await server.close();
+    await cleanup(repoPath);
+  });
+
+  await commitFiles(repoPath, { 'app.js': 'a\n' }, 'initial');
+  const { repoId } = await loadRepo(server.url, repoPath);
+
+  const save = comments =>
+    fetch(`${server.url}/api/save-comments`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ repoId, comments })
+    });
+
+  assert.equal((await save([{ file: 'app.js', line: 1, text: 'one' }])).status, 200);
+  const second = await save([{ file: 'app.js', line: 1, text: 'two' }]);
+  assert.equal(second.status, 200);
+  assert.equal(typeof (await second.json()).lastUpdated, 'string');
+
+  const loaded = await (await fetch(`${server.url}/api/load-comments/${repoId}`)).json();
+  assert.deepEqual(loaded.comments.map(comment => comment.text), ['two']);
 });
 
 test('POST /api/submit-review refuses when nothing has been saved', async t => {

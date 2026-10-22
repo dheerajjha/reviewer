@@ -28,7 +28,7 @@ async function write(dir, name, data) {
 test('a repository with no saved review reads as empty', async () => {
   const dir = await reviewsDir();
 
-  assert.deepEqual(await readSavedComments(dir, '/work/api'), { comments: [], mode: null, range: null, adopted: false });
+  assert.deepEqual(await readSavedComments(dir, '/work/api'), { comments: [], mode: null, range: null, adopted: false, lastUpdated: null });
 });
 
 test('comments are read back for the repository that saved them', async () => {
@@ -39,6 +39,17 @@ test('comments are read back for the repository that saved them', async () => {
 
   assert.deepEqual(comments, [COMMENT]);
   assert.equal(adopted, false);
+});
+
+test('the lastUpdated stamp is read back, as the version token for a conditional save', async () => {
+  const dir = await reviewsDir();
+  await write(dir, commentsFilename('/work/api'), {
+    repoPath: '/work/api',
+    lastUpdated: '2026-10-22T00:00:00.000Z',
+    comments: [COMMENT]
+  });
+
+  assert.equal((await readSavedComments(dir, '/work/api')).lastUpdated, '2026-10-22T00:00:00.000Z');
 });
 
 test('two repositories with the same name keep separate reviews', async () => {
@@ -75,7 +86,7 @@ test('an adopted review is read straight from the new name afterwards', async ()
   await readSavedComments(dir, '/work/api');
   const second = await readSavedComments(dir, '/work/api');
 
-  assert.deepEqual(second, { comments: [COMMENT], mode: null, range: null, adopted: false });
+  assert.deepEqual(second, { comments: [COMMENT], mode: null, range: null, adopted: false, lastUpdated: null });
 });
 
 test('a legacy review belonging to another checkout is not adopted', async () => {
