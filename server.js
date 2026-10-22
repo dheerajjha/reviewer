@@ -60,6 +60,22 @@ function loopbackHostOnly(req, res, next) {
 }
 
 
+/**
+ * The `lastUpdated` stamp for a save that follows `previous`.
+ *
+ * Stamps are the version token for conditional saves (#107), so a new stamp
+ * must differ from the one it replaces even when two saves land inside the
+ * same millisecond -- otherwise a stale tab would look current by accident.
+ *
+ * @param {string|null} previous stamp currently on disk, if any
+ * @returns {string} ISO 8601 stamp strictly after `previous`
+ */
+function nextLastUpdated(previous) {
+  const parsed = previous ? Date.parse(previous) : NaN;
+  const stamp = Number.isNaN(parsed) ? Date.now() : Math.max(Date.now(), parsed + 1);
+  return new Date(stamp).toISOString();
+}
+
 /** A path inside the repository that names nothing, on disk or at HEAD. */
 class FileNotFoundError extends Error {
   /** @param {string} filePath */
@@ -140,6 +156,34 @@ function createApp(options = {}) {
   // starts when that reaches zero. See the route for why it is a timer.
   let watching = 0;
   let idleTimer = null;
+
+  // Saves to one comments file are serialized through here. The conditional
+  // check in /api/save-comments is read-then-write; two saves racing across
+  // the awaits could both pass it and still overwrite each other (#107).
+  /** @type {Map<string, Promise<void>>} */
+  const saveQueues = new Map();
+
+  /**
+   * Run `task` after any save already queued for `key` has settled.
+   *
+   * @template T
+   * @param {string} key comments filename the save writes to
+   * @param {() => Promise<T>} task
+   * @returns {Promise<T>}
+   */
+  function enqueueSave(key, task) {
+    const previous = saveQueues.get(key) ?? Promise.resolve();
+    const run = previous.then(task, task);
+    const tail = run.then(
+      () => {},
+      () => {}
+    );
+    saveQueues.set(key, tail);
+    tail.then(() => {
+      if (saveQueues.get(key) === tail) saveQueues.delete(key);
+    });
+    return run;
+  }
 
   /**
    * Look up the session for a request, or answer 400.
@@ -992,12 +1036,29 @@ function createApp(options = {}) {
     }
   });
 
-  /** Persist the current comments. Called on every edit. */
+  /**
+   * Persist the current comments. Called on every edit.
+   *
+   * A caller that sends the `lastUpdated` it loaded saves conditionally
+   * (#107): if the file has moved on since -- another tab, `reviewer
+   * resolve`, an agent -- the save is refused with 409 and the current
+   * comments and stamp ride along, so the caller can merge and retry
+   * instead of silently overwriting what it never saw. A caller that
+   * sends no `lastUpdated` at all keeps the old unconditional behaviour:
+   * scripts written against the original route are not tabs racing each
+   * other, and breaking them would not protect anyone.
+   */
   app.post('/api/save-comments', async (req, res) => {
     try {
       const { repoId, comments } = req.body ?? {};
       const session = requireSession(res, repoId);
       if (!session) return;
+
+      const conditional = Object.prototype.hasOwnProperty.call(req.body ?? {}, 'lastUpdated');
+      const expected = req.body?.lastUpdated ?? null;
+      if (conditional && expected !== null && typeof expected !== 'string') {
+        return res.status(400).json({ error: 'lastUpdated must be a string or null' });
+      }
 
       let normalized;
       try {
@@ -1006,26 +1067,48 @@ function createApp(options = {}) {
         return res.status(400).json({ error: error.message });
       }
 
-      await fs.mkdir(reviewsDir, { recursive: true });
+      const filename = commentsFilename(session.repoPath);
+      const outcome = await enqueueSave(filename, async () => {
+        const current = await readSavedComments(reviewsDir, session.repoPath);
 
-      // `mode` is on the envelope rather than on each comment: it describes
-      // the review, not any one remark in it, and it is what lets `reviewer
-      // export` say what was compared. Without it an exported review could
-      // only report where HEAD is, which says nothing about whether the
-      // comments are about committed work or uncommitted work.
-      const data = {
-        repoPath: session.repoPath,
-        lastUpdated: new Date().toISOString(),
-        mode: session.mode,
-        range: session.range,
-        comments: normalized
-      };
+        if (conditional && (current.lastUpdated ?? null) !== expected) {
+          return {
+            status: 409,
+            body: {
+              error: 'Comments have changed since they were loaded. Reload, merge and retry.',
+              comments: current.comments,
+              lastUpdated: current.lastUpdated ?? null
+            }
+          };
+        }
 
-      const target = path.join(reviewsDir, commentsFilename(session.repoPath));
-      await fs.writeFile(target, `${JSON.stringify(data, null, 2)}\n`);
+        await fs.mkdir(reviewsDir, { recursive: true });
 
-      res.json({ message: 'Comments saved successfully' });
+        // `mode` is on the envelope rather than on each comment: it describes
+        // the review, not any one remark in it, and it is what lets `reviewer
+        // export` say what was compared. Without it an exported review could
+        // only report where HEAD is, which says nothing about whether the
+        // comments are about committed work or uncommitted work.
+        const lastUpdated = nextLastUpdated(current.lastUpdated ?? null);
+        const data = {
+          repoPath: session.repoPath,
+          lastUpdated,
+          mode: session.mode,
+          range: session.range,
+          comments: normalized
+        };
+
+        const target = path.join(reviewsDir, filename);
+        await fs.writeFile(target, `${JSON.stringify(data, null, 2)}\n`);
+
+        return { status: 200, body: { message: 'Comments saved successfully', lastUpdated } };
+      });
+
+      res.status(outcome.status).json(outcome.body);
     } catch (error) {
+      if (error instanceof ReviewOwnershipError) {
+        return res.status(409).json({ error: error.message });
+      }
       console.error('Save comments error:', error);
       res.status(500).json({ error: error.message });
     }
@@ -1037,8 +1120,8 @@ function createApp(options = {}) {
       const session = requireSession(res, req.params.repoId);
       if (!session) return;
 
-      const { comments } = await readSavedComments(reviewsDir, session.repoPath);
-      res.json({ comments });
+      const { comments, lastUpdated } = await readSavedComments(reviewsDir, session.repoPath);
+      res.json({ comments, lastUpdated: lastUpdated ?? null });
     } catch (error) {
       if (error instanceof ReviewOwnershipError) {
         return res.status(409).json({ error: error.message });
