@@ -520,5 +520,205 @@ test('--json prints one machine-readable startup line on stderr', async () => {
 test('--json is refused outside serving', async () => {
   const { code, stderr } = await run(['export', '.', '--json']);
   assert.equal(code, 2);
-  assert.match(stderr, /--json is only valid when serving a review/);
+  assert.match(stderr, /--json is only valid when serving or checking status/);
+});
+
+test('status --json reports no saved review', async () => {
+  const repoPath = await createTempRepo();
+
+  try {
+    const result = await run(['status', repoPath, '--json']);
+
+    assert.equal(result.code, 0);
+
+    const status = JSON.parse(result.stdout);
+
+    assert.equal(status.repository, repoPath);
+    assert.equal(status.saved, false);
+    assert.equal(status.comments, 0);
+    assert.equal(status.files, 0);
+    assert.equal(status.lastUpdated, null);
+    assert.equal(status.submitted, false);
+    assert.equal(status.lastSubmitted, null);
+    assert.equal(status.mode, null);
+    assert.equal(status.range, null);
+  } finally {
+    await cleanup(repoPath);
+  }
+});
+
+test('status --json reports saved review details', async () => {
+  const repoPath = await createTempRepo();
+  const savedFile = path.join(REVIEWS_DIR, commentsFilename(repoPath));
+  const lastUpdated = '2026-10-22T10:00:00.000Z';
+
+  try {
+    await fs.mkdir(REVIEWS_DIR, { recursive: true });
+
+    await fs.writeFile(savedFile, JSON.stringify({
+      repoPath,
+      lastUpdated,
+      mode: 'working',
+      range: null,
+      comments: [
+        { file: 'src/app.js', line: 1, text: 'First comment' },
+        { file: 'src/app.js', line: 2, text: 'Second comment' },
+        { file: 'src/utils.js', line: 3, text: 'Third comment' }
+      ]
+    }));
+
+    const result = await run(['status', repoPath, '--json']);
+
+    assert.equal(result.code, 0, result.stderr);
+
+    const status = JSON.parse(result.stdout);
+
+    assert.equal(status.repository, repoPath);
+    assert.equal(status.saved, true);
+    assert.equal(status.comments, 3);
+    assert.equal(status.files, 2);
+    assert.equal(status.lastUpdated, lastUpdated);
+    assert.equal(status.submitted, false);
+    assert.equal(status.lastSubmitted, null);
+    assert.equal(status.mode, 'working');
+    assert.equal(status.range, null);
+  } finally {
+    await fs.rm(savedFile, { force: true });
+    await cleanup(repoPath);
+  }
+});
+
+test('status --json reports a submitted review', async () => {
+  const repoPath = await createTempRepo();
+  const savedFile = path.join(REVIEWS_DIR, commentsFilename(repoPath));
+  const { reviewFilename } = require('../lib/review');
+
+  const lastUpdated = '2026-10-22T10:00:00.000Z';
+  const submittedAt = '2026-10-22T10:05:00.000Z';
+
+  const submissionFile = path.join(
+    REVIEWS_DIR,
+    reviewFilename(repoPath, new Date(submittedAt)).replace(/\.txt$/, '.json')
+  );
+
+  try {
+    await fs.mkdir(REVIEWS_DIR, { recursive: true });
+
+    await fs.writeFile(savedFile, JSON.stringify({
+      repoPath,
+      lastUpdated,
+      mode: 'working',
+      range: null,
+      comments: [
+        { file: 'src/app.js', line: 1, text: 'Fix this issue' }
+      ]
+    }));
+
+    await fs.writeFile(submissionFile, JSON.stringify({
+      generatedAt: submittedAt,
+      repository: { path: repoPath }
+    }));
+
+    const result = await run(['status', repoPath, '--json']);
+
+    assert.equal(result.code, 0, result.stderr);
+
+    const status = JSON.parse(result.stdout);
+
+    assert.equal(status.saved, true);
+    assert.equal(status.comments, 1);
+    assert.equal(status.files, 1);
+    assert.equal(status.submitted, true);
+    assert.equal(status.lastSubmitted, submittedAt);
+    assert.equal(status.lastUpdated, lastUpdated);
+  } finally {
+    await fs.rm(savedFile, { force: true });
+    await fs.rm(submissionFile, { force: true });
+    await cleanup(repoPath);
+  }
+});
+
+test('status --json reports unsubmitted changes after a submission', async () => {
+  const repoPath = await createTempRepo();
+  const savedFile = path.join(REVIEWS_DIR, commentsFilename(repoPath));
+  const { reviewFilename } = require('../lib/review');
+
+  const submittedAt = '2026-10-22T10:05:00.000Z';
+  const lastUpdated = '2026-10-22T10:10:00.000Z';
+
+  const submissionFile = path.join(
+    REVIEWS_DIR,
+    reviewFilename(repoPath, new Date(submittedAt)).replace(/\.txt$/, '.json')
+  );
+
+  try {
+    await fs.mkdir(REVIEWS_DIR, { recursive: true });
+
+    await fs.writeFile(savedFile, JSON.stringify({
+      repoPath,
+      lastUpdated,
+      mode: 'working',
+      range: null,
+      comments: [
+        { file: 'src/app.js', line: 1, text: 'Updated comment' }
+      ]
+    }));
+
+    await fs.writeFile(submissionFile, JSON.stringify({
+      generatedAt: submittedAt,
+      repository: { path: repoPath }
+    }));
+
+    const result = await run(['status', repoPath, '--json']);
+
+    assert.equal(result.code, 0, result.stderr);
+
+    const status = JSON.parse(result.stdout);
+
+    assert.equal(status.saved, true);
+    assert.equal(status.submitted, false);
+    assert.equal(status.lastSubmitted, submittedAt);
+    assert.equal(status.lastUpdated, lastUpdated);
+  } finally {
+    await fs.rm(savedFile, { force: true });
+    await fs.rm(submissionFile, { force: true });
+    await cleanup(repoPath);
+  }
+});
+
+test('status displays human-readable review progress and range', async () => {
+  const repoPath = await createTempRepo();
+  const savedFile = path.join(REVIEWS_DIR, commentsFilename(repoPath));
+
+  try {
+    await fs.mkdir(REVIEWS_DIR, { recursive: true });
+
+    await fs.writeFile(savedFile, JSON.stringify({
+      repoPath,
+      lastUpdated: '2026-10-22T10:00:00.000Z',
+      mode: 'range',
+      range: {
+        base: 'abc1234',
+        head: 'def5678',
+        baseName: 'main',
+        headName: 'feature/auth',
+        commits: 3
+      },
+      comments: [
+        { file: 'src/app.js', line: 1, text: 'First comment' },
+        { file: 'src/utils.js', line: 2, text: 'Second comment' }
+      ]
+    }));
+
+    const result = await run(['status', repoPath]);
+
+    assert.equal(result.code, 0, result.stderr);
+    assert.match(result.stdout, /2 comments on 2 files/);
+    assert.match(result.stdout, /last saved 2026-10-22T10:00:00.000Z/);
+    assert.match(result.stdout, /not submitted since last save/);
+    assert.match(result.stdout, /reviewing main → feature\/auth, 3 commits/);
+  } finally {
+    await fs.rm(savedFile, { force: true });
+    await cleanup(repoPath);
+  }
 });

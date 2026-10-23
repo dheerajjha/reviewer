@@ -9,6 +9,7 @@ const { homeRelative } = require('../lib/paths');
 const { openInBrowser } = require('../lib/browser');
 const { formatPrompt } = require('../lib/agent');
 const { ReviewOwnershipError } = require('../lib/store');
+const { readReviewStatus, formatStatus } = require('../lib/status');
 const { reviewsDir, adoptLegacyReviews } = require('../lib/paths');
 const { repoRoot } = require('../lib/repo');
 const {
@@ -164,6 +165,16 @@ async function main() {
 
   if (options.command === 'export') {
     return exportReview(options);
+  }
+  if (options.command === 'status') {
+    const given = options.repoPath ?? process.cwd();
+    const repoPath = (await repoRoot(given)) ?? given;
+    const status = await readReviewStatus(reviewsDir(), repoPath);
+
+    process.stdout.write(
+      options.json ? `${JSON.stringify(status)}\n` : formatStatus(status)
+    );
+    return;
   }
 
   const repoPath = await repositoryToOpen(options.repoPath);

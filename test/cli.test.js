@@ -187,7 +187,7 @@ test('buildUrl encodes characters that would otherwise split the query', () => {
 });
 
 test('the usage text documents every option the parser accepts', () => {
-  for (const flag of ['--port', '--no-open', '--no-intro', '--staged', '--file', '--help', '--version']) {
+  for (const flag of ['--port', '--no-open', '--no-intro', '--staged', '--json', '--file', '--help', '--version']) {
     assert.ok(USAGE.includes(flag), `usage should mention ${flag}`);
   }
 });
@@ -230,4 +230,51 @@ test('usage is written in terms of the name it is given', () => {
 
 test('usage says why --help under git opens a man page', () => {
   assert.match(USAGE, /git reviewer --help opens the\s+manual page/);
+});
+
+test('parseArgs recognises status as a subcommand', () => {
+  const options = parseArgs(['status']);
+
+  assert.equal(options.command, 'status');
+  assert.equal(options.json, false);
+});
+
+test('parseArgs accepts --json for status', () => {
+  const options = parseArgs(['status', '--json']);
+
+  assert.equal(options.command, 'status');
+  assert.equal(options.json, true);
+});
+
+test('parseArgs keeps export and status separate', () => {
+  const exportOptions = parseArgs(['export']);
+
+  assert.equal(exportOptions.command, 'export');
+  assert.equal(exportOptions.json, false);
+});
+
+test('parseArgs rejects --json for export', () => {
+  assert.throws(
+    () => parseArgs(['export', '--json']),
+    UsageError
+  );
+});
+test('parseArgs accepts --json when serving', () => {
+  const options = parseArgs(['--json']);
+
+  assert.equal(options.command, 'serve');
+  assert.equal(options.json, true);
+});
+
+test('parseArgs accepts --json for status with a repository', () => {
+  const options = parseArgs(['status', '.', '--json']);
+
+  assert.equal(options.command, 'status');
+  assert.equal(options.json, true);
+});
+
+test('usage documents status and both JSON contexts', () => {
+  assert.match(USAGE, /status \[repository\] \[--json\]/);
+  assert.match(USAGE, /JSON startup info for serving/);
+  assert.match(USAGE, /JSON review status/);
 });
