@@ -129,6 +129,51 @@ async function saveCommentsToBackend() {
   console.error('Failed to save comments: still changing elsewhere after retries');
 }
 
+/**
+ * Pick up comments written somewhere else while this tab was out of sight.
+ *
+ * A tab only learned about another tab's comments when it saved something
+ * itself, so a tab you were only reading kept showing a stale review (#107).
+ * Coming back into view is the moment someone looks again, so that is when
+ * it asks. Every edit is saved as it is made, so there is nothing unsaved to
+ * protect -- except text being typed into an open box, which redrawing the
+ * code pane would throw away. While one is open only the sidebar is brought
+ * up to date, and the pane catches up the next time a file is drawn.
+ */
+// Set when comments from elsewhere were merged in but the code pane could not
+// be redrawn because someone was typing; cleared whenever the pane is drawn.
+let commentsPaneStale = false;
+
+async function refreshCommentsFromElsewhere() {
+  if (!currentRepoId || document.visibilityState !== 'visible') return;
+  const repoId = currentRepoId;
+
+  let data;
+  try {
+    const response = await fetch(`${API_BASE}/load-comments/${repoId}`);
+    if (!response.ok) return;
+    data = await response.json();
+  } catch {
+    return;
+  }
+  if (currentRepoId !== repoId) return;
+
+  const lastUpdated = data.lastUpdated ?? null;
+  if (lastUpdated !== commentsLastUpdated) {
+    const remoteComments = Array.isArray(data.comments) ? data.comments : [];
+    comments = mergeCommentsForRetry(comments, commentsBase, remoteComments);
+    commentsBase = remoteComments;
+    commentsLastUpdated = lastUpdated;
+    updateCommentsSidebar();
+    commentsPaneStale = true;
+  }
+
+  const typing = document.querySelector('.comment-input-box, .followup-input-box');
+  if (commentsPaneStale && currentFile && !typing) {
+    loadFile(currentFile, currentFiles.findIndex(f => f.path === currentFile));
+  }
+}
+
 // Load comments from backend
 async function loadCommentsFromBackend() {
   if (!currentRepoId) return [];
@@ -1229,6 +1274,7 @@ function displayCode(filePath, diffLines, binary) {
 
   currentFileEl.textContent = filePath;
   currentDiffLines = diffLines; // Store for reference when adding comments
+  commentsPaneStale = false; // drawn from `comments` as they stand now
 
   // A binary file has no lines to show and none to comment on. Saying so is
   // the whole feature: it used to be decoded as UTF-8 and rendered as
@@ -2613,6 +2659,10 @@ function watchFromThisTab() {
 
 document.addEventListener('DOMContentLoaded', () => {
   watchFromThisTab();
+
+  // A tab you were only reading catches up on other tabs' comments when it
+  // comes back into view. See refreshCommentsFromElsewhere.
+  document.addEventListener('visibilitychange', refreshCommentsFromElsewhere);
 
   document.getElementById('repoPath').addEventListener('keypress', (e) => {
     if (e.key === 'Enter') {
