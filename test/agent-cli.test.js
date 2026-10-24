@@ -137,3 +137,20 @@ test('connect resumes the session with reviewer attached as a development channe
   assert.equal(unknown.code, 2);
   assert.match(unknown.stderr, /No Claude Code session ffff/);
 });
+
+test('Ctrl+C reaches Claude Code, not reviewer: connect waits for it and exits with its code', { skip: process.platform === 'win32' && 'POSIX signals' }, async t => {
+  const { repoPath, configDir, env } = await setup(t);
+  await fileSession(configDir, repoPath, null);
+  // Stands in for Claude Code: ignores Ctrl+C, as an interactive session
+  // does (it interrupts a turn), then finishes on its own.
+  const fake = path.join(configDir, 'patient-claude');
+  await fs.writeFile(fake, '#!/bin/sh\ntrap "" INT\nsleep 1\nexit 7\n');
+  await fs.chmod(fake, 0o755);
+
+  const child = spawn(process.execPath, [BIN, 'connect', repoPath], { env: { ...env, REVIEWER_CLAUDE: fake }, stdio: 'ignore' });
+  await new Promise(resolve => setTimeout(resolve, 400));
+  child.kill('SIGINT');
+  const code = await new Promise(resolve => child.on('exit', resolve));
+
+  assert.equal(code, 7, 'reviewer outlived the keypress and reported Claude Code\'s own exit');
+});

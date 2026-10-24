@@ -13,6 +13,7 @@
  *   FAKE_CLAUDE_ARGS        append each invocation's argv here, one JSON line
  *   FAKE_CLAUDE_CRASH_ONCE  exit without answering the first time, marking this file
  *   FAKE_CLAUDE_FAIL        answer every question with an error result
+ *   FAKE_CLAUDE_HANG        never answer: a turn that runs for ever
  *
  * No `.js` extension on purpose: `node --test` runs every .js file under
  * test/, and this is not a test.
@@ -50,7 +51,10 @@ process.stdin.on('data', chunk => {
     if (line.trim()) answer(JSON.parse(line));
   }
 });
-process.stdin.on('end', () => process.exit(0));
+process.stdin.on('end', () => {
+  if (!process.env.FAKE_CLAUDE_HANG) process.exit(0);
+});
+if (process.env.FAKE_CLAUDE_HANG) setInterval(() => {}, 1000);
 
 function answer(message) {
   asked += 1;
@@ -60,6 +64,8 @@ function answer(message) {
     process.stderr.write('fake claude: crashing as asked\n');
     process.exit(3);
   }
+
+  if (process.env.FAKE_CLAUDE_HANG) return;
 
   const prompt = message.message.content;
   const reviewerLines = prompt.split('\n').filter(l => l.startsWith('Reviewer: '));

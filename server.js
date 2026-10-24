@@ -167,6 +167,23 @@ function createApp(options = {}) {
   const live = new EventEmitter();
   live.setMaxListeners(0);
 
+  // Connecting and disconnecting a repository's background session happen
+  // one at a time. Two connects racing would each stop the session they
+  // found -- none -- and both start one, and the first would be left
+  // running with nothing to stop it.
+  /** @type {Map<string, Promise<void>>} */
+  const agentLocks = new Map();
+  const withAgentLock = (repoPath, task) => {
+    const previous = agentLocks.get(repoPath) ?? Promise.resolve();
+    const run = previous.then(task, task);
+    const tail = run.then(() => {}, () => {});
+    agentLocks.set(repoPath, tail);
+    tail.then(() => {
+      if (agentLocks.get(repoPath) === tail) agentLocks.delete(repoPath);
+    });
+    return run;
+  };
+
   app.locals.stopAgents = async () => {
     const running = [...answerers.values()];
     answerers.clear();
@@ -1322,33 +1339,11 @@ function createApp(options = {}) {
         return res.status(404).json({ error: 'No Claude Code session with that id has worked in this repository.' });
       }
 
-      await answerers.get(session.repoPath)?.stop();
-      answerers.delete(session.repoPath);
-
-      const about = found.title ?? found.firstPrompt ?? found.id;
-      // Claude Code finds a session by the directory it ran in. If that has
-      // since been removed, the repository root is the next best place to
-      // run from, rather than a spawn error that reads like a missing binary.
-      const cwd = await fs.access(found.cwd).then(() => found.cwd, () => session.repoPath);
-      const background = new BackgroundSession({
-        sessionId: found.id,
-        cwd,
-        fork,
-        name: fork ? `Review answers: ${about}`.slice(0, 80) : null,
-        claude: claudeCommand,
-        spawn: claude.spawn
+      const answerer = await withAgentLock(session.repoPath, async () => {
+        await answerers.get(session.repoPath)?.stop();
+        answerers.delete(session.repoPath);
+        return startAnswerer(session, found, fork);
       });
-      const answerer = new Answerer({
-        reviewsDir,
-        repoPath: session.repoPath,
-        session: background,
-        claudeSession: { id: found.id, title: about }
-      });
-      answerer.on('partial', data => live.emit('event', session.repoPath, 'partial', data));
-      answerer.on('failed', data => live.emit('event', session.repoPath, 'agent-error', data));
-      answerer.on('status', status => live.emit('event', session.repoPath, 'answerer', status));
-      answerers.set(session.repoPath, answerer);
-      background.start();
 
       console.error(`Answering comments from Claude Code session ${found.id}${fork ? ' (in a copy)' : ''}`);
       live.emit('event', session.repoPath, 'answerer', answerer.status());
@@ -1359,15 +1354,58 @@ function createApp(options = {}) {
     }
   });
 
+  /**
+   * Start a background session answering a repository's comments.
+   *
+   * @param {{repoPath: string}} session
+   * @param {import('./lib/claude-sessions').ClaudeSession} found
+   * @param {boolean} fork
+   * @returns {Promise<Answerer>}
+   */
+  async function startAnswerer(session, found, fork) {
+    const about = found.title ?? found.firstPrompt ?? found.id;
+    // Claude Code finds a session by the directory it ran in. If that has
+    // since been removed, the repository root is the next best place to
+    // run from, rather than a spawn error that reads like a missing binary.
+    const cwd = await fs.access(found.cwd).then(() => found.cwd, () => session.repoPath);
+    const background = new BackgroundSession({
+      sessionId: found.id,
+      cwd,
+      fork,
+      name: fork ? `Review answers: ${about}`.slice(0, 80) : null,
+      claude: claudeCommand,
+      spawn: claude.spawn
+    });
+    const answerer = new Answerer({
+      reviewsDir,
+      repoPath: session.repoPath,
+      session: background,
+      claudeSession: { id: found.id, title: about }
+    });
+    answerer.on('partial', data => live.emit('event', session.repoPath, 'partial', data));
+    answerer.on('failed', data => live.emit('event', session.repoPath, 'agent-error', data));
+    answerer.on('status', status => live.emit('event', session.repoPath, 'answerer', status));
+    answerer.on('stopped', () => {
+      if (answerers.get(session.repoPath) === answerer) answerers.delete(session.repoPath);
+      live.emit('event', session.repoPath, 'answerer', null);
+    });
+    answerers.set(session.repoPath, answerer);
+    background.start();
+    return answerer;
+  }
+
   /** Stop the background session answering this review, if there is one. */
   app.post('/api/agent/disconnect', async (req, res) => {
     const { repoId } = req.body ?? {};
     const session = requireSession(res, repoId);
     if (!session) return;
 
-    const answerer = answerers.get(session.repoPath);
-    answerers.delete(session.repoPath);
-    await answerer?.stop();
+    const answerer = await withAgentLock(session.repoPath, async () => {
+      const running = answerers.get(session.repoPath);
+      answerers.delete(session.repoPath);
+      await running?.stop();
+      return running;
+    });
     live.emit('event', session.repoPath, 'answerer', null);
     res.json({ disconnected: Boolean(answerer) });
   });

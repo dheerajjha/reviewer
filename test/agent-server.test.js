@@ -194,3 +194,54 @@ test('a background session that cannot answer reports why on the feed', async t 
   await until(() => events.some(e => e.event === 'agent-error'));
   assert.equal(events.find(e => e.event === 'agent-error').data.message, 'fake failure');
 });
+
+test('a session that cannot be started at all disconnects instead of claiming to be connected', async t => {
+  const base = await fs.realpath(os.tmpdir());
+  const reviewsDir = await fs.mkdtemp(path.join(base, 'reviewer-agent-'));
+  const configDir = await fs.mkdtemp(path.join(base, 'reviewer-claude-config-'));
+  const repoPath = await createTempRepo();
+  await commitFiles(repoPath, { 'cart.js': 'const a = 1;\n' }, 'initial');
+  const projectDir = path.join(configDir, 'projects', projectDirName(repoPath));
+  await fs.mkdir(projectDir, { recursive: true });
+  await fs.writeFile(path.join(projectDir, `${SESSION}.jsonl`), `${JSON.stringify({ type: 'user', cwd: repoPath, sessionId: SESSION, message: { content: 'x' } })}\n`);
+
+  const app = createApp({ reviewsDir, claude: { configDir, command: 'no-such-claude-binary' } });
+  const server = await new Promise(resolve => { const s = app.listen(0, '127.0.0.1', () => resolve(s)); });
+  t.after(async () => {
+    await app.locals.stopAgents();
+    const closed = new Promise(resolve => server.close(resolve));
+    server.closeIdleConnections?.();
+    await closed;
+    await cleanup(repoPath);
+    await fs.rm(reviewsDir, { recursive: true, force: true });
+    await fs.rm(configDir, { recursive: true, force: true });
+  });
+  const url = `http://127.0.0.1:${server.address().port}`;
+  const post = async (route, body) => (await fetch(`${url}/api/${route}`, {
+    method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(body)
+  })).json();
+  const { repoId } = await post('load-repo', { repoPath });
+
+  await post('agent/connect', { repoId, sessionId: SESSION });
+
+  await until(async () => (await (await fetch(`${url}/api/agent/sessions/${repoId}`)).json()).answerer === null);
+});
+
+test('two connects at once leave one session answering, not two', async t => {
+  const { post, repoId, url, reviewsDir, repoPath } = await setup(t, { spawnEnv: { FAKE_CLAUDE_HANG: '1' } });
+  const { listAgents } = require('../lib/presence');
+
+  await Promise.all([
+    post('agent/connect', { repoId, sessionId: SESSION }),
+    post('agent/connect', { repoId, sessionId: SESSION }),
+    post('agent/connect', { repoId, sessionId: SESSION })
+  ]);
+
+  await until(async () => (await listAgents(reviewsDir, repoPath)).length === 1);
+  await new Promise(resolve => setTimeout(resolve, 300));
+  assert.equal((await listAgents(reviewsDir, repoPath)).filter(a => a.kind === 'background').length, 1);
+  assert.ok((await (await fetch(`${url}/api/agent/sessions/${repoId}`)).json()).answerer);
+
+  await post('agent/disconnect', { repoId });
+  await until(async () => (await listAgents(reviewsDir, repoPath)).length === 0);
+});

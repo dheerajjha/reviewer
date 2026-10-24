@@ -163,3 +163,33 @@ test('an answerer leaves the threads to a session answering live', async t => {
 
   assert.deepEqual(asked, []);
 });
+
+test('a spawn that throws instead of failing later is reported, not thrown at the caller', async t => {
+  const session = new BackgroundSession({
+    sessionId: SESSION, cwd: os.tmpdir(),
+    spawn: () => { const error = new Error('spawn EINVAL'); error.code = 'EINVAL'; throw error; }
+  });
+  t.after(() => session.stop());
+  const failed = once(session, 'failed');
+  const exited = once(session, 'exit');
+
+  assert.doesNotThrow(() => session.ask('k1', 'x'));
+
+  assert.deepEqual(await failed, { key: 'k1', message: 'Could not run "claude": spawn EINVAL' });
+  assert.equal((await exited).fatal, true);
+});
+
+test('stopping does not wait for a turn that may run for minutes', async t => {
+  const session = new BackgroundSession({ sessionId: SESSION, cwd: os.tmpdir(), spawn: fakeSpawn({ FAKE_CLAUDE_HANG: '1' }) });
+  t.after(() => session.stop());
+  const working = once(session, 'working');
+  session.ask('k1', 'thread\nReviewer: ?');
+  await working;
+  const child = session.child;
+
+  const started = Date.now();
+  await session.stop();
+
+  assert.ok(Date.now() - started < 2500, `took ${Date.now() - started}ms`);
+  assert.ok(child.exitCode !== null || child.signalCode !== null, 'the process is gone');
+});

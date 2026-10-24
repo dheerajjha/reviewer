@@ -203,15 +203,34 @@ async function connectCommand(options) {
   // repository root rather than failing to spawn at all.
   const cwd = chosen ? await fs.access(chosen.cwd).then(() => chosen.cwd, () => repoPath) : repoPath;
   const child = spawn(claude, args, { cwd, stdio: 'inherit' });
-  await new Promise((resolve, reject) => {
-    child.on('error', error => reject(error.code === 'ENOENT'
-      ? new Error(`Could not run "${claude}". Is Claude Code installed and on your PATH? Set REVIEWER_CLAUDE to its path otherwise.`)
-      : error));
-    child.on('exit', (code, signal) => {
-      process.exitCode = code ?? (signal ? 1 : 0);
-      resolve();
+
+  // Ctrl+C belongs to Claude Code while it runs -- it interrupts a turn, it
+  // does not quit -- and the terminal delivers it to both processes. This one
+  // only waits, so it must not die of the same keypress and leave Claude Code
+  // running on a terminal the shell has already taken back. A request to
+  // stop that comes from outside is passed on instead.
+  const ignore = () => {};
+  const forward = signal => child.kill(signal);
+  process.on('SIGINT', ignore);
+  process.on('SIGQUIT', ignore);
+  process.on('SIGTERM', forward);
+  process.on('SIGHUP', forward);
+  try {
+    await new Promise((resolve, reject) => {
+      child.on('error', error => reject(error.code === 'ENOENT'
+        ? new Error(`Could not run "${claude}". Is Claude Code installed and on your PATH? Set REVIEWER_CLAUDE to its path otherwise.`)
+        : error));
+      child.on('exit', (code, signal) => {
+        process.exitCode = code ?? (signal ? 1 : 0);
+        resolve();
+      });
     });
-  });
+  } finally {
+    process.off('SIGINT', ignore);
+    process.off('SIGQUIT', ignore);
+    process.off('SIGTERM', forward);
+    process.off('SIGHUP', forward);
+  }
 }
 
 /**
@@ -424,9 +443,11 @@ async function main() {
 
   let handedOff = false;
   const stop = () => {
-    // A background Claude Code session answering comments stops with us.
-    server.stopAgents?.();
-    server.close(() => process.exit(0));
+    // A background Claude Code session answering comments stops with us:
+    // asked to straight away, and waited for before the process exits.
+    Promise.resolve(server.stopAgents?.()).catch(() => {}).then(() => {
+      server.close(() => process.exit(0));
+    });
     // Don't wait forever on a browser holding the connection open.
     setTimeout(() => process.exit(0), 2000).unref();
   };
