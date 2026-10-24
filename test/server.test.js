@@ -1790,6 +1790,31 @@ test('a server no browser ever opened keeps serving', async () => {
   }
 });
 
+test('a tab that has moved on to the live feed still counts as open', async t => {
+  // Once a repository is open the page holds /api/events and closes
+  // /api/alive, so that a tab costs one connection rather than two.
+  let idle = 0;
+  const server = await startTestServer({ onIdle: () => { idle += 1; }, idleGraceMs: GRACE });
+  const repoPath = await createTempRepo();
+  t.after(async () => { await server.close(); await cleanup(repoPath); });
+  await commitFiles(repoPath, { 'app.js': 'a\n' }, 'initial');
+  const { repoId } = await loadRepo(server.url, repoPath);
+
+  const alive = await openTab(server.url);
+  const controller = new AbortController();
+  const feed = await fetch(`${server.url}/api/events/${repoId}`, { signal: controller.signal });
+  const reader = feed.body.getReader();
+  reader.read().catch(() => {});
+  alive.close();
+
+  await settle(GRACE * 3);
+  assert.equal(idle, 0, 'the feed is holding the tab open');
+
+  controller.abort();
+  await settle(GRACE * 3);
+  assert.equal(idle, 1, 'and closing it is the tab leaving');
+});
+
 test('without an onIdle there is nothing to tell, and nothing breaks', async () => {
   // The piped form passes no onIdle on purpose: submitting is what hands the
   // review over there, and a closed tab is not a submitted review.

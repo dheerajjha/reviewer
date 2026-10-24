@@ -19,14 +19,14 @@ const APP_JS = path.join(__dirname, '..', 'public', 'app.js');
  * @param {string[]} names top-level `function name(...)`s in public/app.js
  * @returns {Function} the last function named, with the earlier ones in scope
  */
-function loadFunctions(names) {
+function loadFunctions(names, prelude = '') {
   const source = fs.readFileSync(APP_JS, 'utf-8');
   const declarations = names.map(name => {
     const declaration = source.match(new RegExp(`^function ${name}\\([\\s\\S]*?^}`, 'm'));
     assert.ok(declaration, `no top-level function ${name} in public/app.js`);
     return declaration[0];
   });
-  return new Function(`${declarations.join('\n')}; return ${names[names.length - 1]};`)();
+  return new Function(`${prelude}\n${declarations.join('\n')}; return ${names[names.length - 1]};`)();
 }
 
 const mergeCommentsForRetry = loadFunctions(['commentKey', 'followUpIdentity', 'unionFollowUps', 'toPersistedComment', 'mergeCommentsForRetry']);
@@ -138,4 +138,54 @@ test('two comments with the same text on one line stay two comments', () => {
   const merged = mergeCommentsForRetry([one], [one], [one, two]);
 
   assert.deepEqual(merged.map(c => c.key), ['k1', 'k2']);
+});
+
+// The page loads comments, keeps a base copy to merge against, and adds
+// replies to threads. When the base shared a thread's array with the live
+// comment, a reply pushed onto it changed the base too: the merge after a
+// refused save saw nothing changed here and took the server's thread, and
+// the reply was lost from the page and from disk.
+
+const pageFunctions = ['commentKey', 'followUpIdentity', 'unionFollowUps', 'toPersistedComment', 'snapshotComments', 'appendFollowUp', 'mergeCommentsForRetry'];
+const page = Object.fromEntries(pageFunctions.map(name => [
+  name,
+  loadFunctions(pageFunctions.slice(0, pageFunctions.indexOf(name) + 1), "let minted = 0; const mintKey = () => `m${++minted}`;")
+]));
+
+test('a reply added here survives a refused save while an agent answers another thread', () => {
+  const answer = { key: 'a1', text: 'Because.', by: 'claude', timestamp: '2026-10-24T10:00:00.000Z' };
+  const saved = [keyed('C', 'thread C', { followUps: [answer] }), keyed('D', 'thread D')];
+
+  // What loading does: live comments are shallow copies, the base a snapshot.
+  const live = saved.map(c => ({ ...c, diffLineIndex: null }));
+  const base = page.snapshotComments(saved);
+
+  // The reviewer replies in C; meanwhile Claude answers D on the server.
+  page.appendFollowUp(live[0], 'Even for a sale price?');
+  const remote = [saved[0], keyed('D', 'thread D', { followUps: [{ ...answer, key: 'a2' }] })];
+
+  const merged = page.mergeCommentsForRetry(live, base, remote);
+
+  assert.deepEqual(merged.find(c => c.key === 'C').followUps.map(f => f.text), ['Because.', 'Even for a sale price?']);
+  assert.deepEqual(merged.find(c => c.key === 'D').followUps.map(f => f.key), ['a2']);
+});
+
+test('adding a reply makes a new thread array and leaves the old one alone', () => {
+  const original = [{ key: 'f1', text: 'first' }];
+  const comment = keyed('C', 'thread', { followUps: original });
+
+  page.appendFollowUp(comment, 'second');
+
+  assert.deepEqual(original.map(f => f.text), ['first']);
+  assert.deepEqual(comment.followUps.map(f => f.text), ['first', 'second']);
+});
+
+test('a snapshot shares nothing with the comments it was taken from', () => {
+  const comment = keyed('C', 'thread', { followUps: [{ key: 'f1', text: 'first' }] });
+  const [snapshot] = page.snapshotComments([comment]);
+
+  comment.followUps.push({ key: 'f2', text: 'pushed after' });
+  comment.followUps[0].text = 'changed after';
+
+  assert.deepEqual(snapshot.followUps, [{ key: 'f1', text: 'first' }]);
 });

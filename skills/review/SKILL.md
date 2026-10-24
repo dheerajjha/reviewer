@@ -52,10 +52,13 @@ why it is the way it is. Follow the review and answer in its threads:
 
    Each line is one comment waiting for you, as JSON: its `key`, `file`,
    `line`, the reviewer's latest message in `text`, and the whole `thread`.
-2. For each one, read the code it points at and answer:
+2. For each one, read the code it points at and answer. The answer goes on
+   stdin, so quotes, backticks and new lines need no escaping:
 
    ```bash
-   npx -y git-reviewer@latest reply <key> "<your answer>"
+   npx -y git-reviewer@latest reply <key> - <<'EOF'
+   <your answer>
+   EOF
    ```
 
    The answer appears under the comment in the user's browser straight away.

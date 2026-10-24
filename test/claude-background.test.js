@@ -67,7 +67,7 @@ test('questions are answered one at a time and each answer reaches its own threa
   assert.ok(partials.some(p => p.key === 'k1' && p.text.startsWith('Answer 1')) && partials.length > 2, 'the words arrive before the answer does');
 });
 
-test('a session that dies mid-answer is restarted once, on the copy, with the same question', async t => {
+test('a session that dies mid-answer is restarted once with the same question', async t => {
   const dir = await tempDir(t);
   const argsFile = path.join(dir, 'args.jsonl');
   const session = new BackgroundSession({
@@ -180,7 +180,11 @@ test('a spawn that throws instead of failing later is reported, not thrown at th
 
   assert.doesNotThrow(() => session.ask('k1', 'x'));
 
-  assert.deepEqual(await failed, { key: 'k1', message: 'Could not run "claude": spawn EINVAL' });
+  // EINVAL is what Windows answers for a .cmd started without a shell, so
+  // it gets the same advice as a missing binary.
+  const { key, message } = await failed;
+  assert.equal(key, 'k1');
+  assert.match(message, /^Could not run "claude": is Claude Code installed and on your PATH\? Set REVIEWER_CLAUDE/);
   assert.equal((await exited).fatal, true);
 });
 
@@ -197,4 +201,26 @@ test('stopping does not wait for a turn that may run for minutes', async t => {
 
   assert.ok(Date.now() - started < 2500, `took ${Date.now() - started}ms`);
   assert.ok(child.exitCode !== null || child.signalCode !== null, 'the process is gone');
+});
+
+test('a restart after the copy was made resumes the copy instead of forking again', async t => {
+  const dir = await tempDir(t);
+  const argsFile = path.join(dir, 'args.jsonl');
+  const session = new BackgroundSession({
+    sessionId: SESSION, cwd: os.tmpdir(), name: 'Review answers: cart',
+    spawn: fakeSpawn({ FAKE_CLAUDE_CRASH_AFTER_INIT: path.join(dir, 'crashed'), FAKE_CLAUDE_ARGS: argsFile })
+  });
+  t.after(() => session.stop());
+  const answer = once(session, 'answer');
+
+  session.ask('k1', 'thread\nReviewer: still there?');
+
+  assert.equal((await answer).text, 'Answer 1 to "still there?"');
+  const [first, second] = (await fs.readFile(argsFile, 'utf-8')).trim().split('\n').map(line => JSON.parse(line));
+  assert.ok(first.includes('--fork-session'));
+  const copy = session.answeringSession;
+  assert.notEqual(copy, SESSION);
+  assert.deepEqual(second.slice(second.indexOf('--resume'), second.indexOf('--resume') + 2), ['--resume', copy]);
+  assert.ok(!second.includes('--fork-session'), 'the answers so far stay in one conversation');
+  assert.ok(!second.includes('--name'), 'and it keeps the name it was given');
 });

@@ -3,7 +3,7 @@
 [![CI](https://github.com/dheerajjha/reviewer/actions/workflows/ci.yml/badge.svg)](https://github.com/dheerajjha/reviewer/actions/workflows/ci.yml)
 [![License: MIT](https://img.shields.io/badge/license-MIT-blue.svg)](LICENSE)
 [![Node](https://img.shields.io/badge/node-%3E%3D18-brightgreen.svg)](package.json)
-[![Tests](https://img.shields.io/badge/tests-488-brightgreen.svg)](test/)
+[![Tests](https://img.shields.io/badge/tests-500-brightgreen.svg)](test/)
 [![Dependencies](https://img.shields.io/badge/dependencies-3-brightgreen.svg)](package.json)
 
 **English** · [简体中文](docs/README.zh-CN.md) · [日本語](docs/README.ja.md)
@@ -428,6 +428,7 @@ command can take part:
 ```bash
 git reviewer watch              # one JSON line per comment waiting for an answer
 git reviewer reply <key> "Because the spec says inclusive."
+git reviewer reply <key> - < answer.md   # or the answer on stdin
 ```
 
 Every comment has a stable `key`. It is in the export, and in each line `watch`
@@ -527,7 +528,7 @@ rather than a public issue.
 
 ```bash
 npm install           # 3 dependencies, no build step, ~6MB
-npm test              # 488 tests
+npm test              # 500 tests
 npm run test:watch
 npm run test:coverage
 ```

@@ -66,6 +66,31 @@ function unionFollowUps(ours = [], theirs = []) {
   return merged;
 }
 
+/**
+ * Add the reviewer's reply to a thread.
+ *
+ * A new array, never a push. The thread's array can be the very one
+ * `commentsBase` holds -- loading and merging both copy comments shallowly --
+ * and pushing onto it changed the base along with the comment, so the merge
+ * after a refused save saw no change here and took the server's copy of the
+ * thread: the reply was gone from the page and from disk.
+ */
+function appendFollowUp(comment, text) {
+  comment.followUps = [...(comment.followUps ?? []), {
+    key: mintKey(),
+    text,
+    timestamp: new Date().toISOString()
+  }];
+}
+
+/**
+ * A copy of comments as persisted, sharing nothing with what it was taken
+ * from: what `commentsBase` holds must not change when the live comments do.
+ */
+function snapshotComments(list) {
+  return JSON.parse(JSON.stringify(list.map(toPersistedComment)));
+}
+
 /** Reduce a live comment to the shape that gets persisted, for `commentsBase`. */
 function toPersistedComment(comment) {
   const persisted = {
@@ -154,7 +179,7 @@ async function saveCommentsToBackend() {
   // again, now based on the merged state.
   for (let attempt = 0; attempt < 3; attempt++) {
     try {
-      const sent = comments.map(toPersistedComment);
+      const sent = snapshotComments(comments);
       const response = await fetch(`${API_BASE}/save-comments`, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
@@ -184,7 +209,7 @@ async function saveCommentsToBackend() {
         adoptRemoteComments(data.comments, data.lastUpdated ?? commentsLastUpdated, sent);
       } else {
         if (data.lastUpdated) commentsLastUpdated = data.lastUpdated;
-        commentsBase = sent;
+        commentsBase = snapshotComments(sent);
       }
       return;
     } catch (error) {
@@ -248,7 +273,7 @@ async function refreshCommentsFromElsewhere() {
 function adoptRemoteComments(remoteComments, lastUpdated, base = commentsBase) {
   const before = JSON.stringify(comments.map(toPersistedComment));
   comments = mergeCommentsForRetry(comments, base, remoteComments);
-  commentsBase = remoteComments;
+  commentsBase = snapshotComments(remoteComments);
   commentsLastUpdated = lastUpdated;
   for (const comment of comments) {
     // An answer has landed; the words that were streaming in are now in the thread.
@@ -295,7 +320,7 @@ async function loadCommentsFromBackend() {
     const response = await fetch(`${API_BASE}/load-comments/${currentRepoId}`);
     const data = await response.json();
     commentsLastUpdated = data.lastUpdated ?? null;
-    commentsBase = data.comments || [];
+    commentsBase = snapshotComments(data.comments || []);
     return data.comments || [];
   } catch (error) {
     console.error('Failed to load comments:', error);
@@ -1630,16 +1655,7 @@ function saveFollowUp(diffLineIndex) {
   const comment = comments.find(c => c.file === currentFile && c.diffLineIndex === diffLineIndex);
   if (!comment) return;
 
-  // Initialize followUps if it doesn't exist
-  if (!comment.followUps) {
-    comment.followUps = [];
-  }
-
-  comment.followUps.push({
-    key: mintKey(),
-    text: text,
-    timestamp: new Date().toISOString()
-  });
+  appendFollowUp(comment, text);
 
   // Auto-save to backend
   saveCommentsToBackend();
@@ -1733,16 +1749,7 @@ function saveFollowUpToUnmatched(index) {
   const comment = unmatchedShown[Number(index)];
   if (!comment) return;
 
-  // Initialize followUps if it doesn't exist
-  if (!comment.followUps) {
-    comment.followUps = [];
-  }
-
-  comment.followUps.push({
-    key: mintKey(),
-    text: followUpText,
-    timestamp: new Date().toISOString()
-  });
+  appendFollowUp(comment, followUpText);
 
   // Auto-save to backend
   saveCommentsToBackend();
@@ -2919,6 +2926,9 @@ function openReviewEvents(repoId) {
   if (typeof EventSource === 'undefined') return;
   const events = new EventSource(`${API_BASE}/events/${repoId}`);
   agentState.events = events;
+  // The feed counts as this tab watching once it is open; the separate
+  // signal is closed only then, so there is no moment with neither.
+  events.addEventListener('open', stopWatchingFromThisTab, { once: true });
 
   const parse = event => {
     try {
@@ -2961,6 +2971,7 @@ function openReviewEvents(repoId) {
 }
 
 function closeReviewEvents() {
+  if (agentState.events) watchFromThisTab();
   agentState.events?.close();
   agentState.events = null;
   agentState.agents = [];
@@ -3102,13 +3113,26 @@ async function copyConnectCommand(index) {
  * server's grace period work -- a flaky connection comes back inside it and
  * nothing is stopped.
  */
+let aliveStream = null;
+
 function watchFromThisTab() {
+  if (aliveStream) return;
   try {
-    new EventSource(`${API_BASE}/alive`);
+    aliveStream = new EventSource(`${API_BASE}/alive`);
   } catch {
     // Older browsers, or a page opened from a file:// URL. Losing this costs
     // an automatic exit, not a review, so there is nothing to report.
   }
+}
+
+/**
+ * Hand the "this tab is open" signal over to the review's live feed, which
+ * the server counts the same way. One long-lived connection per tab rather
+ * than two: browsers allow six to a host, and every save needs one.
+ */
+function stopWatchingFromThisTab() {
+  aliveStream?.close();
+  aliveStream = null;
 }
 
 document.addEventListener('DOMContentLoaded', () => {

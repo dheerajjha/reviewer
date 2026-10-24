@@ -25,6 +25,7 @@ test('parseArgs defaults to serving, with no repository and an automatic browser
     list: false,
     key: null,
     text: null,
+    textFromStdin: false,
     as: null,
     help: false,
     version: false

@@ -29,6 +29,7 @@ const { watchAgents } = require('./lib/presence');
 const { listClaudeSessions, findClaudeSession } = require('./lib/claude-sessions');
 const { BackgroundSession } = require('./lib/claude-background');
 const { Answerer } = require('./lib/answerer');
+const { resolveClaudeCommand } = require('./lib/claude-command');
 
 const DEFAULT_PORT = 4500;
 const DEFAULT_HOST = '127.0.0.1';
@@ -810,21 +811,22 @@ function createApp(options = {}) {
    * after having been above it, so `reviewer` whose browser never launched
    * keeps serving rather than exiting into an empty terminal.
    */
-  app.get('/api/alive', (req, res) => {
+  /**
+   * Count a tab as watching for as long as `res` stays open.
+   *
+   * Shared by `/api/alive` and `/api/events`: a tab holds exactly one of
+   * them, the first before a repository is open and the second after.
+   * Browsers allow six connections to one host, and a tab holding two would
+   * leave three tabs nothing to save with.
+   *
+   * @param {import('express').Response} res
+   */
+  function countWatcher(res) {
     if (idleTimer) {
       clearTimeout(idleTimer);
       idleTimer = null;
     }
     watching += 1;
-
-    res.set({
-      'Content-Type': 'text/event-stream',
-      'Cache-Control': 'no-cache',
-      Connection: 'keep-alive'
-    });
-    // A comment frame, which EventSource ignores. Sending it now is what
-    // flushes the headers, so the client is connected rather than pending.
-    res.write(': watching\n\n');
 
     res.on('close', () => {
       watching -= 1;
@@ -839,6 +841,19 @@ function createApp(options = {}) {
       // waiting out the grace period before the process could exit.
       idleTimer.unref();
     });
+  }
+
+  app.get('/api/alive', (req, res) => {
+    countWatcher(res);
+
+    res.set({
+      'Content-Type': 'text/event-stream',
+      'Cache-Control': 'no-cache',
+      Connection: 'keep-alive'
+    });
+    // A comment frame, which EventSource ignores. Sending it now is what
+    // flushes the headers, so the client is connected rather than pending.
+    res.write(': watching\n\n');
   });
 
   /** List the directories inside one, so a repository can be found by looking. */
@@ -1264,6 +1279,10 @@ function createApp(options = {}) {
     const session = requireSession(res, req.params.repoId);
     if (!session) return;
 
+    // The page's one long-lived connection once a repository is open, so it
+    // is also how the server knows the tab is still there (see /api/alive).
+    countWatcher(res);
+
     res.set({
       'Content-Type': 'text/event-stream',
       'Cache-Control': 'no-cache',
@@ -1373,7 +1392,7 @@ function createApp(options = {}) {
       cwd,
       fork,
       name: fork ? `Review answers: ${about}`.slice(0, 80) : null,
-      claude: claudeCommand,
+      claude: claude.spawn ? claudeCommand : resolveClaudeCommand(claudeCommand),
       spawn: claude.spawn
     });
     const answerer = new Answerer({

@@ -26,6 +26,7 @@ const { mintKey } = require('../lib/comments');
 const { appendReply, awaitingAnswer, newReviewerMessages, describeThread, lastAuthor } = require('../lib/threads');
 const { listClaudeSessions } = require('../lib/claude-sessions');
 const { runChannel } = require('../lib/channel');
+const { resolveClaudeCommand } = require('../lib/claude-command');
 
 // What to call this command when it talks about itself: whatever the person
 // typed, so a hint can be pasted back as-is. See invokedAs in lib/cli.js.
@@ -202,7 +203,7 @@ async function connectCommand(options) {
   // A session whose directory has since been removed is resumed from the
   // repository root rather than failing to spawn at all.
   const cwd = chosen ? await fs.access(chosen.cwd).then(() => chosen.cwd, () => repoPath) : repoPath;
-  const child = spawn(claude, args, { cwd, stdio: 'inherit' });
+  const child = spawn(resolveClaudeCommand(claude), args, { cwd, stdio: 'inherit' });
 
   // Ctrl+C belongs to Claude Code while it runs -- it interrupts a turn, it
   // does not quit -- and the terminal delivers it to both processes. This one
@@ -217,8 +218,9 @@ async function connectCommand(options) {
   process.on('SIGHUP', forward);
   try {
     await new Promise((resolve, reject) => {
-      child.on('error', error => reject(error.code === 'ENOENT'
-        ? new Error(`Could not run "${claude}". Is Claude Code installed and on your PATH? Set REVIEWER_CLAUDE to its path otherwise.`)
+      child.on('error', error => reject(['ENOENT', 'EINVAL'].includes(error.code)
+        ? new Error(`Could not run "${claude}". Is Claude Code installed and on your PATH? Set REVIEWER_CLAUDE to its path otherwise` +
+          `${process.platform === 'win32' ? ' (the full path of claude.exe)' : ''}.`)
         : error));
       child.on('exit', (code, signal) => {
         process.exitCode = code ?? (signal ? 1 : 0);
@@ -260,6 +262,12 @@ async function channelCommand(options) {
  */
 async function replyCommand(options) {
   const repoPath = await requireRepository(options.repoPath);
+  if (options.textFromStdin) {
+    const chunks = [];
+    for await (const chunk of process.stdin) chunks.push(chunk);
+    options.text = Buffer.concat(chunks).toString('utf-8').trim();
+    if (options.text === '') throw new UsageError('reply - read nothing from stdin');
+  }
   const session = process.env.CLAUDE_CODE_SESSION_ID || null;
   const by = options.as ?? (session ? 'claude' : 'agent');
 

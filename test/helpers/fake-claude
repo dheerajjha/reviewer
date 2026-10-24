@@ -14,6 +14,7 @@
  *   FAKE_CLAUDE_CRASH_ONCE  exit without answering the first time, marking this file
  *   FAKE_CLAUDE_FAIL        answer every question with an error result
  *   FAKE_CLAUDE_HANG        never answer: a turn that runs for ever
+ *   FAKE_CLAUDE_CRASH_AFTER_INIT  like CRASH_ONCE, but after reporting the session
  *
  * No `.js` extension on purpose: `node --test` runs every .js file under
  * test/, and this is not a test.
@@ -62,6 +63,13 @@ function answer(message) {
   if (crashMarker && !fs.existsSync(crashMarker)) {
     fs.writeFileSync(crashMarker, 'crashed');
     process.stderr.write('fake claude: crashing as asked\n');
+    process.exit(3);
+  }
+
+  const afterInit = process.env.FAKE_CLAUDE_CRASH_AFTER_INIT;
+  if (afterInit && !fs.existsSync(afterInit)) {
+    fs.writeFileSync(afterInit, 'crashed');
+    send({ type: 'system', subtype: 'init', session_id: session, model: 'fake-model', tools: ['Read', 'Grep', 'Glob'] });
     process.exit(3);
   }
 

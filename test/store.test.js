@@ -247,3 +247,55 @@ test('a lock left behind by a writer that died is taken over', async t => {
   assert.ok(Date.now() - started < 3000);
   await assert.rejects(fs.stat(`${file}.lock`), { code: 'ENOENT' }, 'and released afterwards');
 });
+
+test('two writers finding the same abandoned lock still take turns', async t => {
+  // Each store module instance has its own in-process queue, as two
+  // processes would; only the file lock keeps them apart.
+  const freshStore = () => {
+    for (const id of Object.keys(require.cache)) if (id.includes(`${path.sep}lib${path.sep}`)) delete require.cache[id];
+    return require('../lib/store');
+  };
+  const storeA = freshStore();
+  const storeB = freshStore();
+
+  for (let trial = 0; trial < 10; trial++) {
+    const dir = await reviewsDir();
+    t.after(() => fs.rm(dir, { recursive: true, force: true }));
+    const file = path.join(dir, commentsFilename('/work/api'));
+    await write(dir, commentsFilename('/work/api'), { repoPath: '/work/api', comments: [{ ...COMMENT, key: 'k1' }] });
+    await fs.writeFile(`${file}.lock`, '99999999\n');
+    const old = new Date(Date.now() - 60000);
+    await fs.utimes(`${file}.lock`, old, old);
+
+    let inside = 0;
+    let overlapped = false;
+    const append = (store, who) => store.updateSavedComments(dir, '/work/api', async state => {
+      inside += 1;
+      overlapped ||= inside > 1;
+      await new Promise(resolve => setTimeout(resolve, 20));
+      inside -= 1;
+      return { comments: state.comments.map(c => ({ ...c, followUps: [...(c.followUps || []), { key: who, text: who, by: 'claude' }] })) };
+    });
+    await Promise.all([append(storeA, 'A'), append(storeB, 'B')]);
+
+    assert.equal(overlapped, false, `trial ${trial}: both writers held the lock at once`);
+    assert.equal((await storeA.readSavedComments(dir, '/work/api')).comments[0].followUps.length, 2);
+  }
+});
+
+test('a lock held by a writer that is still running is waited for, not broken', async t => {
+  const dir = await reviewsDir();
+  t.after(() => fs.rm(dir, { recursive: true, force: true }));
+  const file = path.join(dir, commentsFilename('/work/api'));
+  await write(dir, commentsFilename('/work/api'), { repoPath: '/work/api', comments: [COMMENT] });
+  await fs.writeFile(`${file}.lock`, `${process.pid}\n`);
+
+  let finished = false;
+  const update = updateSavedComments(dir, '/work/api', state => ({ comments: state.comments })).then(() => { finished = true; });
+  await new Promise(resolve => setTimeout(resolve, 300));
+  assert.equal(finished, false, 'still waiting while its owner is alive');
+
+  await fs.rm(`${file}.lock`);
+  await update;
+  assert.equal(finished, true);
+});
