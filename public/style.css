@@ -211,6 +211,12 @@ button:disabled {
   flex-shrink: 0;
 }
 
+.file-fold-count {
+  flex-shrink: 0;
+  font-size: 11px;
+  color: #6a737d;
+}
+
 .file-status-added {
   background: #28a745;
   color: white;

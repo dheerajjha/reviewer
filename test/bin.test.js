@@ -267,6 +267,34 @@ test('it serves a staged review of the requested repository, then stops on SIGIN
   await exited;
 });
 
+test('--no-untracked serves tracked changes through the URL printed by the command', async t => {
+  const repoPath = await createTempRepo();
+  t.after(() => cleanup(repoPath));
+  await commitFiles(repoPath, { 'app.js': 'before\n' }, 'initial');
+  await writeFiles(repoPath, { 'app.js': 'after\n', 'scratch/new.js': 'untracked\n' });
+
+  const { url, child, stdout } = await serve([repoPath, '--no-untracked', '--no-intro']);
+  t.after(() => child.kill('SIGKILL'));
+  const address = new URL(url);
+  assert.equal(address.searchParams.get('repo'), repoPath);
+  assert.equal(address.searchParams.get('untracked'), '0');
+  assert.equal(address.searchParams.get('intro'), '0');
+  assert.equal(stdout(), '\n', 'the startup banner does not enter the review pipe');
+
+  const response = await fetch(new URL('/api/load-repo', address), {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({
+      repoPath: address.searchParams.get('repo'),
+      untracked: address.searchParams.get('untracked') !== '0'
+    })
+  });
+  assert.equal(response.status, 200);
+  const body = await response.json();
+  assert.equal(body.mode, 'working');
+  assert.deepEqual(body.files, [{ path: 'app.js', status: 'M' }]);
+});
+
 test('the package installs the command under both of its names', () => {
   // The package is published as `git-reviewer`, so `git-reviewer` is what a
   // reader of the install line types next — and until this entry existed, that
@@ -355,12 +383,13 @@ test('export run from a subdirectory finds the repository review', async t => {
  * @param {string} origin
  * @param {string} repoPath
  * @param {object[]} comments
+ * @param {object} [scope]
  */
-async function submitThrough(origin, repoPath, comments) {
+async function submitThrough(origin, repoPath, comments, scope = {}) {
   const { repoId } = await (await fetch(`${origin}/api/load-repo`, {
     method: 'POST',
     headers: { 'Content-Type': 'application/json' },
-    body: JSON.stringify({ repoPath })
+    body: JSON.stringify({ repoPath, ...scope })
   })).json();
 
   await fetch(`${origin}/api/save-comments`, {
@@ -397,6 +426,48 @@ test('submitting a review writes it to stdout and the command exits', async t =>
   assert.match(piped, /^\n?# Code review to address/);
   assert.match(piped, /Needs a test\./);
   assert.match(piped, /app\.js/);
+});
+
+test('tracked-only scope survives command handoff and later filtered exports', async t => {
+  const repoPath = await createTempRepo();
+  t.after(() => cleanup(repoPath));
+  await commitFiles(repoPath, { 'app.js': 'before\n', 'other.js': 'before\n' }, 'initial');
+  await writeFiles(repoPath, {
+    'app.js': 'after\n', 'other.js': 'after\n', 'scratch.js': 'untracked\n'
+  });
+  const comments = ['app.js', 'other.js'].map(file => ({
+    file, line: 1, lineContent: 'after', text: `Check ${file}.`
+  }));
+
+  const { url, child, stdout } = await serve([repoPath, '--no-untracked']);
+  t.after(() => child.kill('SIGKILL'));
+  const address = new URL(url);
+  assert.equal(address.searchParams.get('untracked'), '0');
+  const closed = new Promise(resolve => child.once('close', resolve));
+  const submitted = await submitThrough(address.origin, address.searchParams.get('repo'), comments, {
+    untracked: address.searchParams.get('untracked') !== '0'
+  });
+  assert.equal(await closed, 0);
+  assert.equal(submitted.review.untracked, false);
+  assert.match(stdout(), /Comparison: tracked changes in the working tree/);
+  assert.match(stdout(), /Untracked files are excluded from this comparison/);
+  assert.match(stdout(), /Saved comments are shared between review views/);
+
+  for (const file of [null, 'app.js']) {
+    const args = ['export', repoPath, ...(file ? ['--file', file] : [])];
+    const json = await run(args);
+    assert.equal(json.code, 0, json.stderr);
+    const document = JSON.parse(json.stdout);
+    assert.equal(document.mode, 'working');
+    assert.equal(document.untracked, false);
+    assert.deepEqual(document.comments.map(comment => comment.file), file ? [file] : ['app.js', 'other.js']);
+
+    const prompt = await run([...args, '--format', 'prompt']);
+    assert.equal(prompt.code, 0, prompt.stderr);
+    assert.match(prompt.stdout, /Comparison: tracked changes in the working tree/);
+    assert.match(prompt.stdout, /Untracked files are excluded from this comparison/);
+    assert.match(prompt.stdout, /Saved comments are shared between review views/);
+  }
 });
 
 test('nothing but the review reaches stdout', async t => {
@@ -467,4 +538,58 @@ test('the first byte goes out immediately, not when the review is submitted', as
   // review it never received, and nothing reports a failure. Reviewing takes
   // minutes. By the time the banner is up, the pipe must already be held.
   assert.equal(stdout(), '\n');
+});
+test('--json prints one machine-readable startup line on stderr', async () => {
+  const child = require('node:child_process').spawn(
+    process.execPath,
+    [BIN, '--json', '--no-open', '--port', '0'],
+    { stdio: ['ignore', 'pipe', 'pipe'] }
+  );
+
+  try {
+    // The first stderr line is the whole contract: read it, nothing more.
+    const line = await new Promise((resolve, reject) => {
+      let buffered = '';
+      const timer = setTimeout(
+        () => reject(new Error(`no startup line: ${buffered}`)),
+        15000
+      );
+
+      child.stderr.on('data', chunk => {
+        buffered += chunk;
+        const end = buffered.indexOf('\n');
+        if (end === -1) return;
+        clearTimeout(timer);
+        resolve(buffered.slice(0, end));
+      });
+
+      child.once('exit', code => {
+        clearTimeout(timer);
+        reject(new Error(`exited ${code} before printing: ${buffered}`));
+      });
+    });
+
+    const info = JSON.parse(line);
+
+    assert.deepEqual(
+      Object.keys(info).sort(),
+      ['pid', 'port', 'repository', 'url', 'version']
+    );
+    assert.equal(info.pid, child.pid);
+    assert.equal(info.version, require('../package.json').version);
+    assert.ok(Number.isInteger(info.port) && info.port > 0);
+    assert.equal(new URL(info.url).port, String(info.port));
+
+    // The URL it gave is the one actually serving.
+    const health = await fetch(new URL('/api/health', info.url));
+    assert.equal(health.status, 200);
+  } finally {
+    child.kill();
+  }
+});
+
+test('--json is refused outside serving', async () => {
+  const { code, stderr } = await run(['export', '.', '--json']);
+  assert.equal(code, 2);
+  assert.match(stderr, /--json is only valid when serving a review/);
 });

@@ -12,11 +12,11 @@ const {
   resolveRepoFile,
   PathEscapeError
 } = require('./lib/paths');
-const { collectWorkingChanges, collectStagedChanges, collectCommitChanges, parseNameStatus } = require('./lib/changes');
+const { collectWorkingTreeChanges, describeWorkingChanges, collectStagedChanges, collectCommitChanges, parseNameStatus } = require('./lib/changes');
 const { SessionStore } = require('./lib/sessions');
 const { normalizeComments } = require('./lib/comments');
 const { formatReview, reviewFilename, commentsFilename } = require('./lib/review');
-const { buildReviewDocument } = require('./lib/agent');
+const { buildReviewDocument, describeScope } = require('./lib/agent');
 const { readSavedComments, ReviewOwnershipError } = require('./lib/store');
 const { repoRoot } = require('./lib/repo');
 const { browse } = require('./lib/browse');
@@ -882,7 +882,10 @@ function createApp(options = {}) {
       // Resolve to the root of the working tree before anything is keyed on
       // this path. A subdirectory passes `checkIsRepo()` quite happily and
       // then produces a file list whose diffs are all empty; see lib/repo.js.
-      const { base, head, commits: run, staged = false } = req.body ?? {};
+      const { base, head, commits: run, staged = false, untracked = true } = req.body ?? {};
+      if (typeof untracked !== 'boolean') {
+        return res.status(400).json({ error: 'The untracked option must be a boolean.' });
+      }
       if (typeof staged !== 'boolean' || (staged && (base != null || head != null || run != null))) {
         return res.status(400).json({ error: 'Choose staged changes or a commit comparison, not both.' });
       }
@@ -931,12 +934,14 @@ function createApp(options = {}) {
         mode = 'range';
         message = describeRange(range, files.length);
       } else {
-        files = collectWorkingChanges(await git.status());
+        files = await collectWorkingTreeChanges(git, untracked);
         mode = 'working';
-        message = `Found ${files.length} changed file(s)`;
+        message = describeWorkingChanges(files, untracked);
 
         // A clean tree has nothing to review, so fall back to the last commit.
-        if (files.length === 0) {
+        // Hiding untracked files is an explicit working-tree scope. An empty
+        // tracked review must not silently become a review of committed work.
+        if (files.length === 0 && untracked) {
           try {
             const lastCommit = await resolveRange(git, 'HEAD~1', 'HEAD');
             const commitFiles = await collectRangeChanges(git, lastCommit);
@@ -954,7 +959,10 @@ function createApp(options = {}) {
         }
       }
 
-      const repoId = sessions.create(root, mode, range);
+      const repoId = sessions.create(root, mode, range, untracked);
+      sessions.get(repoId).foldedDirectories = new Map(
+        files.filter(file => file.directory).map(file => [file.path, file.fileCount])
+      );
       // stderr, not stdout. `reviewer | claude -p ...` puts the finished
       // review on stdout, and anything else written there lands in the middle
       // of it. Progress is for the person watching; stdout is for the pipe.
@@ -969,7 +977,7 @@ function createApp(options = {}) {
 
       // `repoPath` in the response is the resolved root, not what was asked
       // for, so the page can show which repository it actually opened.
-      res.json({ repoId, files, repoPath: root, mode, range, message });
+      res.json({ repoId, files, repoPath: root, mode, range, message, untracked });
     } catch (error) {
       console.error('Load repo error:', error);
       res.status(500).json({ error: error.message });
@@ -989,6 +997,10 @@ function createApp(options = {}) {
       // 500 and let the traversal reach git. A containment check that only
       // works because of statement order is not a containment check.
       resolveRepoFile(session.repoPath, filePath);
+
+      if (session.foldedDirectories?.has(filePath)) {
+        return res.json({ filePath, directory: true, fileCount: session.foldedDirectories.get(filePath), binary: false, diffLines: [] });
+      }
 
       const git = gitFactory(session.repoPath);
       const diffText = await diffForFile(git, session, filePath);
@@ -1021,6 +1033,11 @@ function createApp(options = {}) {
       const { repoId, filePath } = req.params;
       const session = requireSession(res, repoId);
       if (!session) return;
+
+      resolveRepoFile(session.repoPath, filePath);
+      if (session.foldedDirectories?.has(filePath)) {
+        return res.json({ filePath, directory: true, fileCount: session.foldedDirectories.get(filePath), lines: [] });
+      }
 
       const content = await readFileForMode(session, filePath);
       res.json({ filePath, lines: content.split('\n') });
@@ -1095,6 +1112,7 @@ function createApp(options = {}) {
           lastUpdated,
           mode: session.mode,
           range: session.range,
+          ...(session.untracked === false ? { untracked: false } : {}),
           comments: normalized
         };
 
@@ -1149,7 +1167,6 @@ function createApp(options = {}) {
       }
 
       const generatedAt = new Date();
-      const reviewContent = formatReview({ repoPath: session.repoPath, comments, generatedAt });
       const filename = reviewFilename(session.repoPath, generatedAt);
 
       // The commit is worth recording for anything acting on the review later:
@@ -1165,7 +1182,12 @@ function createApp(options = {}) {
         head,
         branch,
         mode: session.mode,
-        range: session.range
+        range: session.range,
+        untracked: session.untracked
+      });
+      const reviewContent = formatReview({
+        repoPath: session.repoPath, comments, generatedAt,
+        scope: document.untracked === false ? describeScope(document) : null
       });
       const documentFilename = filename.replace(/\.txt$/, '.json');
 

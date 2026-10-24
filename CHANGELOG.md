@@ -6,9 +6,49 @@ adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
 ## [Unreleased]
 
+## [2.15.0] - 2026-10-24
+
+Four changes, each from someone contributing to reviewer for the first time.
+Most of them are for running reviewer from a script or a coding agent.
+
+### Added
+
+- **`--no-untracked`** reviews tracked changes only. An empty tracked-only
+  view stays empty, instead of falling back to the last commit. API clients
+  pass `untracked: false` to `POST /api/load-repo`. The scope is kept in saved
+  reviews, submitted reviews and exports, and the agent prompt says so
+  ([#106](https://github.com/dheerajjha/reviewer/issues/106),
+  [#118](https://github.com/dheerajjha/reviewer/pull/118), from @KingEmma7).
+- **`--json`** replaces the startup banner with one JSON line on stderr:
+  `url`, `port`, `repository`, `pid` and `version`. An agent can find the
+  server without scraping the banner. There is no `repoId` in it, because
+  none exists until `POST /api/load-repo` creates one. The README's HTTP API
+  section now also documents the request bodies for `load-repo`,
+  `save-comments` and `submit-review`
+  ([#111](https://github.com/dheerajjha/reviewer/issues/111),
+  [#116](https://github.com/dheerajjha/reviewer/pull/116), from @Iqranawaz-debug).
+- **`--no-intro`** opens the review without the first-run help. A fresh
+  automation browser otherwise shows that help over the diff on every run.
+  The page is told through `intro=0` in the URL, and the `?` button still
+  opens it ([#109](https://github.com/dheerajjha/reviewer/issues/109),
+  [#114](https://github.com/dheerajjha/reviewer/pull/114), from @ziyugu89).
+
 ### Fixed
 
-- `reviewer export` explains when a path is outside a Git repository and has no saved review.
+- **A large untracked folder no longer buries the real change.** reviewer
+  listed every untracked file, so one unignored build folder could turn a
+  one-line edit into thousands of rows.
+  - A wholly untracked directory with more than 200 files is now one row with
+    its file count, and no diff.
+  - Smaller directories, such as a new folder of source files, stay listed
+    file by file.
+  - Tracked edits are listed first, and the page opens on them.
+  - On a test repository, 3,856 rows (160 KB) became 208 (7.6 KB)
+    ([#106](https://github.com/dheerajjha/reviewer/issues/106),
+    [#118](https://github.com/dheerajjha/reviewer/pull/118), from @KingEmma7).
+- `reviewer export` says so when a path is outside a Git repository and has
+  no saved review ([#105](https://github.com/dheerajjha/reviewer/pull/105),
+  from @jay23606).
 
 ## [2.14.1] - 2026-10-18
 
@@ -808,7 +848,8 @@ Initial release: Electron desktop app and web mode for reviewing local git
 changes with inline comments, threaded follow-ups, persistent storage, and a
 GitHub-style diff view.
 
-[Unreleased]: https://github.com/dheerajjha/reviewer/compare/v2.14.1...HEAD
+[Unreleased]: https://github.com/dheerajjha/reviewer/compare/v2.15.0...HEAD
+[2.15.0]: https://github.com/dheerajjha/reviewer/compare/v2.14.1...v2.15.0
 [2.14.1]: https://github.com/dheerajjha/reviewer/compare/v2.14.0...v2.14.1
 [2.14.0]: https://github.com/dheerajjha/reviewer/compare/v2.13.1...v2.14.0
 [2.13.1]: https://github.com/dheerajjha/reviewer/compare/v2.13.0...v2.13.1

@@ -56,6 +56,28 @@ test('buildReviewDocument leaves the commit null when git would not say', () => 
   assert.equal(document.repository.branch, null);
 });
 
+test('a tracked-only review keeps its scope when filtered without relabelling older comments', () => {
+  const document = build(COMMENTS, { mode: 'working', untracked: false, head: 'abc1234', branch: 'main' });
+  const filtered = filterReviewDocument(document, { file: 'src/auth.js' });
+  assert.equal(filtered.untracked, false);
+  const prompt = formatPrompt(filtered);
+  assert.match(prompt, /Comparison: tracked changes in the working tree, against main \(abc1234\)/);
+  assert.match(prompt, /Untracked files are excluded from this comparison/);
+  assert.match(prompt, /Saved comments are shared between review views/);
+  assert.match(prompt, /check their anchors before applying them/);
+
+  for (const extra of [
+    {}, { mode: 'working' }, { mode: 'working', untracked: true },
+    { mode: 'working', untracked: 'false' }, { mode: 'working', untracked: 0 },
+    { mode: 'staged', untracked: false }, { mode: 'lastCommit', untracked: false },
+    { mode: 'range', untracked: false }, { untracked: false }
+  ]) {
+    const ordinary = build(COMMENTS, extra);
+    assert.equal('untracked' in ordinary, false);
+    assert.doesNotMatch(formatPrompt(ordinary), /Untracked files are excluded/);
+  }
+});
+
 test('buildReviewDocument counts comments and the files they touch', () => {
   assert.deepEqual(build().summary, { comments: 3, files: 2 });
 });

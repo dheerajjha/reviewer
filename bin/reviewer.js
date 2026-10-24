@@ -253,18 +253,34 @@ async function main() {
     options.port ?? (Number(process.env.PORT) || DEFAULT_PORT),
     { onReviewSubmitted, handoff: handingOff, onIdle }
   );
+  const port = server.address().port;
   const url = buildUrl(
-    `http://${DEFAULT_HOST}:${server.address().port}`,
+    `http://${DEFAULT_HOST}:${port}`,
     repoPath,
     options.staged,
-    options.noIntro
+    options.noIntro,
+    options.untracked
   );
 
-  note(`\n  Code Reviewer  ${url}`);
-  if (repoPath) note(`  reviewing      ${repoPath}`);
-  note(handingOff
-    ? '\n  Submit the review in the browser and it will be written here.\n'
-    : '\n  Close the tab when you are done, or press Ctrl+C.\n');
+  if (options.json) {
+    // One machine-readable line instead of the banner, so an agent can read
+    // the URL without a regex that breaks the day the banner is reworded.
+    // stderr, like everything else here: stdout is reserved for the review.
+    // No repoId: none exists yet. The page creates one via POST /api/load-repo.
+    note(JSON.stringify({
+      url,
+      port,
+      repository: repoPath,
+      pid: process.pid,
+      version
+    }));
+  } else {
+    note(`\n  Code Reviewer  ${url}`);
+    if (repoPath) note(`  reviewing      ${repoPath}`);
+    note(handingOff
+      ? '\n  Submit the review in the browser and it will be written here.\n'
+      : '\n  Close the tab when you are done, or press Ctrl+C.\n');
+  }
 
   if (options.open && !(await openInBrowser(url))) {
     note('  Could not open a browser — open the URL above yourself.\n');

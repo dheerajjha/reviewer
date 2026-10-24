@@ -57,7 +57,7 @@ test('loading an empty staged view clears the previous file without falling back
   let emptied = false;
   let message;
   const load = lift('loadRepo', {
-    document, stagedByDefault: true, API_BASE: '/api',
+    document, stagedByDefault: true, untrackedByDefault: true, API_BASE: '/api',
     fetch: async (url, options) => {
       request = JSON.parse(options.body);
       return { ok: true, json: async () => ({ repoId: 'one', mode: 'staged', files: [] }) };

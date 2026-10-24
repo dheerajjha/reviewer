@@ -3,7 +3,7 @@
 [![CI](https://github.com/dheerajjha/reviewer/actions/workflows/ci.yml/badge.svg)](https://github.com/dheerajjha/reviewer/actions/workflows/ci.yml)
 [![License: MIT](https://img.shields.io/badge/license-MIT-blue.svg)](LICENSE)
 [![Node](https://img.shields.io/badge/node-%3E%3D18-brightgreen.svg)](package.json)
-[![Tests](https://img.shields.io/badge/tests-395-brightgreen.svg)](test/)
+[![Tests](https://img.shields.io/badge/tests-425-brightgreen.svg)](test/)
 [![Dependencies](https://img.shields.io/badge/dependencies-3-brightgreen.svg)](package.json)
 
 **English** · [简体中文](docs/README.zh-CN.md) · [日本語](docs/README.ja.md)
@@ -81,6 +81,7 @@ git reviewer export [repository] [--format json|prompt]
       --no-open     Print the URL instead of opening a browser
       --no-intro    Open the review without the first-run help
       --staged      Review only staged changes (HEAD vs index)
+      --no-untracked Review tracked working-tree changes only
   -f, --format <f>  Export format: json (default) or prompt
   -h, --help        Show help
   -v, --version     Show the version
@@ -103,6 +104,19 @@ this as a staged review. The default command still shows all working-tree
 changes. As with the default view, reload after changing what is staged. Saved comments
 are shared between views and may refer to code outside the current comparison;
 check their anchors before applying them.
+
+Wholly untracked directories with more than 200 files appear as one directory
+row with a file count and no diff. Smaller directories stay reviewable file by
+file. Tracked changes are always listed individually, and `.gitignore` still
+applies. The scope note names any folded directories and their counts.
+The headline counts individual files separately from folded folders and the
+files inside them. Tracked changes appear first; reloading keeps your selection.
+
+Use `git reviewer --no-untracked` to exclude all untracked files. If there are
+no tracked working-tree changes, the view stays empty instead of loading the
+last commit. Staged and commit comparisons keep their usual behavior.
+Saved reviews and exports retain this tracked-only scope. The text review and
+agent prompt explain the exclusion; older comments remain shared between views.
 
 ### When you are not standing in a repository
 
@@ -389,6 +403,48 @@ The UI is a client of this; nothing is hidden from you.
 | `POST /api/submit-review` | Render the saved comments to a review file |
 | `DELETE /api/cleanup/:repoId` | End the session; files on disk are untouched |
 
+### POST request bodies
+
+`POST /api/load-repo` opens a repository. `repoPath` is required; choose a comparison or staged changes:
+
+```json
+{"repoPath":"/home/you/work/api","base":"main","head":"feature"}
+```
+
+To review a commit range, use `"commits": {"from":"abc123","to":"def456"}` instead of `base`/`head`. To review staged changes, use `"staged": true` without comparison fields. `head` is optional when using `base`.
+
+For tracked working-tree changes only, send `"untracked": false`. It defaults
+to `true`. Folded directory entries carry `directory: true` and `fileCount`;
+they have no file diff.
+
+`POST /api/save-comments` persists comments for an open session:
+
+```json
+{
+  "repoId": "<repoId returned by load-repo>",
+  "comments": [
+    {
+      "file": "src/app.js",
+      "line": 12,
+      "lineContent": "const value = 1;",
+      "text": "Consider renaming this variable.",
+      "selectedText": "const value",
+      "followUps": [{"text":"Please also update its uses.","timestamp":"2026-01-01T00:00:00.000Z"}]
+    }
+  ]
+}
+```
+
+Each comment requires `file` (non-empty string), `line` (positive integer), and `text` (non-empty string). `lineContent`, `selectedText`, and `followUps` are optional.
+
+`POST /api/submit-review` renders the previously saved comments:
+
+```json
+{"repoId":"<repoId returned by load-repo>"}
+```
+
+The startup `--json` output does not include `repoId`: no session exists at startup. A client obtains its own `repoId` by calling `POST /api/load-repo`.
+
 A `repoId` is a random per-session handle, not a path. Requests that resolve
 outside the opened repository are refused, and a path that names nothing gets a
 404.
@@ -411,7 +467,7 @@ rather than a public issue.
 
 ```bash
 npm install           # 3 dependencies, no build step, ~6MB
-npm test              # 395 tests
+npm test              # 425 tests
 npm run test:watch
 npm run test:coverage
 ```

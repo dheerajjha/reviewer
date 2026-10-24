@@ -7,6 +7,7 @@ const fsSync = require('node:fs');
 const os = require('node:os');
 const path = require('node:path');
 const http = require('node:http');
+const { simpleGit } = require('simple-git');
 
 const { createApp, startServer } = require('../server');
 const { createTempRepo, createTempDir, writeFiles, commitFiles, cleanup, git } =
@@ -134,11 +135,231 @@ test('POST /api/load-repo lists working directory changes', async t => {
   const body = await loadRepo(server.url, repoPath);
 
   assert.equal(body.mode, 'working');
-  assert.match(body.message, /Found 2 changed file\(s\)/);
+  assert.equal(body.message, 'Found 2 changed files');
   assert.deepEqual(
     [...body.files].sort((a, b) => a.path.localeCompare(b.path)),
     [{ path: 'app.js', status: 'M' }, { path: 'new.js', status: 'A' }]
   );
+});
+
+test('POST /api/load-repo folds 3000 nested untracked files and serves the folder without a diff', async t => {
+  const server = await startTestServer();
+  const repoPath = await createTempRepo();
+  t.after(async () => { await server.close(); await cleanup(repoPath); });
+  await commitFiles(repoPath, { 'app.js': 'before\n', 'mixed/tracked.js': 'before\n' }, 'initial');
+  const folder = 'café 日本/';
+  await writeFiles(repoPath, {
+    ...Object.fromEntries(Array.from({ length: 3000 }, (_, i) => [`${folder}nested/file-${i}.txt`, 'generated\n'])),
+    'app.js': 'after\n',
+    'mixed/tracked.js': 'after\n',
+    'mixed/new.js': 'new\n',
+    'small/one.js': 'one\n',
+    'small/two.js': 'two\n',
+    'café 日本-neighbor/keep.js': 'neighbor\n'
+  });
+
+  const body = await loadRepo(server.url, repoPath);
+  assert.equal(body.mode, 'working');
+  assert.equal(body.files.length, 7);
+  assert.equal(body.untracked, true);
+  assert.deepEqual(body.files.find(file => file.directory), {
+    path: folder, status: 'A', directory: true, fileCount: 3000
+  });
+  assert.deepEqual(body.files.filter(file => !file.directory).map(file => file.path).sort(), [
+    'app.js', 'café 日本-neighbor/keep.js', 'mixed/new.js', 'mixed/tracked.js', 'small/one.js', 'small/two.js'
+  ]);
+  assert.equal(body.message, `Found 6 changed files; 1 folder folded (3,000 untracked files). ${folder} holds 3,000 untracked files; individual files are not listed.`);
+  const diff = await (await fetch(`${server.url}/api/file/${body.repoId}/${encodeURIComponent(folder)}`)).json();
+  assert.deepEqual(diff, { filePath: folder, directory: true, fileCount: 3000, binary: false, diffLines: [] });
+  const full = await (await fetch(`${server.url}/api/file-full/${body.repoId}/${encodeURIComponent(folder)}`)).json();
+  assert.deepEqual(full, { filePath: folder, directory: true, fileCount: 3000, lines: [] });
+  const small = await (await fetch(`${server.url}/api/file/${body.repoId}/small/one.js`)).json();
+  assert.match(JSON.stringify(small.diffLines), /one/);
+  const tracked = await (await fetch(`${server.url}/api/file/${body.repoId}/app.js`)).json();
+  assert.match(JSON.stringify(tracked.diffLines), /after/);
+});
+
+test('folded folders are counted separately from the files still available to review', async t => {
+  const server = await startTestServer();
+  const repoPath = await createTempRepo();
+  t.after(async () => { await server.close(); await cleanup(repoPath); });
+  await commitFiles(repoPath, { 'a.js': 'before\n', 'ios/code.js': 'tracked\n' }, 'initial');
+  // Windows does not permit angle brackets in directory names.
+  const markupFolder = process.platform === 'win32' ? 'markup&folder/' : '<markup&folder>/';
+  const foldedCounts = { 'dd/': 3000, 'b201/': 201, 'ios/DerivedData/': 250, [markupFolder]: 201 };
+  const files = {
+    'a.js': 'after\n',
+    'src/feature/one.js': 'one\n',
+    'src/feature/two.js': 'two\n',
+    'src/feature/three.js': 'three\n'
+  };
+  for (const [folder, count] of Object.entries({ ...foldedCounts, 'b200/': 200 })) {
+    for (let i = 0; i < count; i++) files[`${folder}file-${i}.txt`] = 'new\n';
+  }
+  await writeFiles(repoPath, files);
+
+  const body = await loadRepo(server.url, repoPath);
+  const reviewable = body.files.filter(file => !file.directory);
+  const folded = body.files.filter(file => file.directory);
+  assert.equal(body.mode, 'working');
+  assert.deepEqual(body.files[0], { path: 'a.js', status: 'M' });
+  assert.equal(reviewable.length, 204);
+  assert.equal(folded.length, 4);
+  assert.deepEqual(Object.fromEntries(folded.map(file => [file.path, file.fileCount])), foldedCounts);
+  assert.equal(reviewable.filter(file => file.path.startsWith('b200/')).length, 200);
+  assert.equal(reviewable.filter(file => file.path.startsWith('src/feature/')).length, 3);
+  assert.deepEqual(reviewable.find(file => file.path === 'a.js'), { path: 'a.js', status: 'M' });
+  assert.ok(body.message.startsWith('Found 204 changed files; 4 folders folded (3,652 untracked files). '), body.message);
+  for (const [folder, count] of Object.entries(foldedCounts)) {
+    assert.ok(body.message.includes(`${folder} holds ${count.toLocaleString('en-US')} untracked files; individual files are not listed.`));
+  }
+
+  const { body: trackedOnly } = await loadScope(server.url, { repoPath, untracked: false });
+  assert.deepEqual(trackedOnly.files, [{ path: 'a.js', status: 'M' }]);
+  assert.equal(trackedOnly.message, 'Found 1 changed file — untracked files hidden');
+  assert.doesNotMatch(trackedOnly.message, /folders? folded/);
+});
+
+test('POST /api/load-repo excludes untracked files without asking Git to enumerate them', async t => {
+  const statusCalls = [];
+  const server = await startTestServer({ git: repoPath => {
+    const client = simpleGit(repoPath);
+    const status = client.status.bind(client);
+    client.status = options => { statusCalls.push(options); return status(options); };
+    return client;
+  } });
+  const repoPath = await createTempRepo();
+  t.after(async () => { await server.close(); await cleanup(repoPath); });
+  await commitFiles(repoPath, { 'app.js': 'before\n' }, 'initial');
+  await writeFiles(repoPath, { 'app.js': 'after\n', 'scratch/one.js': 'untracked\n' });
+
+  const { status, body } = await loadScope(server.url, { repoPath, untracked: false });
+  assert.equal(status, 200);
+  assert.deepEqual(body.files, [{ path: 'app.js', status: 'M' }]);
+  assert.equal(body.untracked, false);
+  assert.match(body.message, /untracked files hidden/i);
+  assert.equal(statusCalls.length, 1);
+  assert.ok(statusCalls[0].includes('--untracked-files=no'));
+});
+
+test('POST /api/load-repo with untracked false keeps an empty tracked review instead of the last commit', async t => {
+  const server = await startTestServer();
+  const repoPath = await createTempRepo();
+  t.after(async () => { await server.close(); await cleanup(repoPath); });
+  await commitFiles(repoPath, { 'app.js': 'before\n' }, 'initial');
+  await commitFiles(repoPath, { 'app.js': 'after\n' }, 'second');
+  await writeFiles(repoPath, { 'scratch/one.js': 'untracked\n' });
+
+  const { body } = await loadScope(server.url, { repoPath, untracked: false });
+  assert.equal(body.mode, 'working');
+  assert.equal(body.range, null);
+  assert.deepEqual(body.files, []);
+  assert.match(body.message, /No tracked changes/);
+  assert.match(body.message, /untracked files hidden/i);
+});
+
+test('POST /api/load-repo rejects non-boolean untracked values', async t => {
+  const server = await startTestServer();
+  const repoPath = await createTempRepo();
+  t.after(async () => { await server.close(); await cleanup(repoPath); });
+  for (const untracked of ['false', null, 0, []]) {
+    const { status, body } = await loadScope(server.url, { repoPath, untracked });
+    assert.equal(status, 400);
+    assert.match(body.error, /untracked.*boolean/i);
+  }
+});
+
+test('a tracked-only review retains its scope through save, submit, reload and later export', async t => {
+  const server = await startTestServer();
+  const repoPath = await createTempRepo();
+  t.after(async () => { await server.close(); await cleanup(repoPath); });
+  await commitFiles(repoPath, { 'app.js': 'before\n' }, 'initial');
+  await writeFiles(repoPath, { 'app.js': 'after\n', 'scratch.txt': 'older note\n' });
+  const post = async (route, body) => {
+    const response = await fetch(`${server.url}/api/${route}`, {
+      method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(body)
+    });
+    assert.equal(response.status, 200);
+    return response.json();
+  };
+  const oldComment = { file: 'scratch.txt', line: 1, lineContent: 'older note', text: 'Keep this note.' };
+  const ordinary = await loadRepo(server.url, repoPath);
+  await post('save-comments', { repoId: ordinary.repoId, comments: [oldComment] });
+  const { body: filtered } = await loadScope(server.url, { repoPath, untracked: false });
+  assert.deepEqual(filtered.files, [{ path: 'app.js', status: 'M' }]);
+  const inherited = await (await fetch(`${server.url}/api/load-comments/${filtered.repoId}`)).json();
+  assert.deepEqual(inherited.comments, [oldComment]);
+  await post('save-comments', { repoId: filtered.repoId, comments: [...inherited.comments,
+    { file: 'app.js', line: 1, lineContent: 'after', text: 'Check this edit.' }
+  ] });
+  const savedPath = path.join(server.reviewsDir, commentsFilename(repoPath));
+  const saved = JSON.parse(await fs.readFile(savedPath, 'utf8'));
+  assert.equal(saved.untracked, false);
+  const submitted = await post('submit-review', { repoId: filtered.repoId });
+  const storedDocument = JSON.parse(await fs.readFile(path.join(server.reviewsDir, submitted.documentFilename), 'utf8'));
+  for (const document of [submitted.review, storedDocument, await loadReviewDocument(server.reviewsDir, repoPath)]) {
+    assert.equal(document.mode, 'working');
+    assert.equal(document.untracked, false);
+    assert.deepEqual(document.comments.map(c => c.file).sort(), ['app.js', 'scratch.txt']);
+    assert.match(formatPrompt(document), /Untracked files are excluded from this comparison/);
+    assert.match(formatPrompt(document), /Saved comments are shared between review views/);
+  }
+  assert.match(submitted.reviewContent, /Untracked files are excluded from this comparison/);
+  assert.match(submitted.reviewContent, /Saved comments are shared between review views/);
+  assert.equal(await fs.readFile(submitted.reviewPath, 'utf8'), submitted.reviewContent);
+
+  // Opening a different view does not rewrite the last saved review's scope.
+  const reopened = await loadRepo(server.url, repoPath);
+  assert.equal((await loadReviewDocument(server.reviewsDir, repoPath)).untracked, false);
+  await post('save-comments', { repoId: reopened.repoId, comments: saved.comments });
+  const reset = await post('submit-review', { repoId: reopened.repoId });
+  for (const document of [reset.review, await loadReviewDocument(server.reviewsDir, repoPath)]) {
+    assert.equal('untracked' in document, false);
+    assert.doesNotMatch(formatPrompt(document), /Untracked files are excluded/);
+  }
+  assert.equal('untracked' in JSON.parse(await fs.readFile(savedPath, 'utf8')), false);
+  assert.doesNotMatch(reset.reviewContent, /Untracked files are excluded/);
+});
+
+test('the untracked option preserves staged and commit comparison scopes', async t => {
+  const server = await startTestServer();
+  const repoPath = await createTempRepo();
+  t.after(async () => { await server.close(); await cleanup(repoPath); });
+  await commitFiles(repoPath, { 'app.js': 'before\n' }, 'initial');
+  await commitFiles(repoPath, { 'app.js': 'committed\n' }, 'second');
+  await writeFiles(repoPath, { 'app.js': 'staged\n' });
+  await git(repoPath, ['add', 'app.js']);
+  await writeFiles(repoPath, { 'app.js': 'unstaged\n', 'scratch.js': 'untracked\n' });
+  for (const untracked of [true, false]) {
+    const { body: staged } = await loadScope(server.url, { repoPath, staged: true, untracked });
+    assert.equal(staged.mode, 'staged');
+    assert.deepEqual(staged.files, [{ path: 'app.js', status: 'M' }]);
+    const stagedDiff = await (await fetch(`${server.url}/api/file/${staged.repoId}/app.js`)).json();
+    assert.match(JSON.stringify(stagedDiff.diffLines), /staged/);
+    assert.doesNotMatch(JSON.stringify(stagedDiff.diffLines), /unstaged/);
+    const { body: range } = await loadScope(server.url, { repoPath, base: 'HEAD~1', untracked });
+    assert.equal(range.mode, 'range');
+    assert.deepEqual(range.files, [{ path: 'app.js', status: 'M' }]);
+    const rangeDiff = await (await fetch(`${server.url}/api/file/${range.repoId}/app.js`)).json();
+    assert.match(JSON.stringify(rangeDiff.diffLines), /committed/);
+    assert.doesNotMatch(JSON.stringify(rangeDiff.diffLines), /staged/);
+    for (const scope of [staged, range]) {
+      const savedResponse = await fetch(`${server.url}/api/save-comments`, {
+        method: 'POST', headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ repoId: scope.repoId, comments: [
+          { file: 'app.js', line: 1, lineContent: 'before', text: 'Check this edit.' }
+        ] })
+      });
+      assert.equal(savedResponse.status, 200);
+      await savedResponse.json();
+      const saved = JSON.parse(await fs.readFile(path.join(server.reviewsDir, commentsFilename(repoPath)), 'utf8'));
+      assert.equal('untracked' in saved, false);
+      const document = await loadReviewDocument(server.reviewsDir, repoPath);
+      assert.equal(document.mode, scope.mode);
+      assert.equal('untracked' in document, false);
+      assert.doesNotMatch(formatPrompt(document), /Untracked files are excluded/);
+    }
+  }
 });
 
 test('POST /api/load-repo reports a deleted file', async t => {

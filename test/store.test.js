@@ -52,6 +52,30 @@ test('the lastUpdated stamp is read back, as the version token for a conditional
   assert.equal((await readSavedComments(dir, '/work/api')).lastUpdated, '2026-10-22T00:00:00.000Z');
 });
 
+test('saved scope keeps only an explicit tracked-only working comparison, including adopted reviews', async t => {
+  for (const nameOf of [commentsFilename, legacyCommentsFilename]) {
+    for (const scope of [
+      { mode: 'working', untracked: false },
+      {}, { mode: 'working' }, { mode: 'working', untracked: true },
+      { mode: 'working', untracked: 'false' }, { mode: 'working', untracked: 0 },
+      { mode: 'working', untracked: null },
+      { mode: 'staged', untracked: false }, { mode: 'range', untracked: false },
+      { mode: 'lastCommit', untracked: false }, { untracked: false }
+    ]) {
+      const dir = await reviewsDir();
+      t.after(() => fs.rm(dir, { recursive: true, force: true }));
+      await write(dir, nameOf('/work/api'), { repoPath: '/work/api', comments: [COMMENT], ...scope });
+      const saved = await readSavedComments(dir, '/work/api');
+      assert.deepEqual(saved.comments, [COMMENT]);
+      if (scope.mode === 'working' && scope.untracked === false) {
+        assert.equal(saved.untracked, false);
+      } else {
+        assert.equal('untracked' in saved, false);
+      }
+    }
+  }
+});
+
 test('two repositories with the same name keep separate reviews', async () => {
   // The regression this file exists for. Before the fingerprint, the second
   // save destroyed the first and both repositories read back the survivor.

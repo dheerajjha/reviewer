@@ -9,6 +9,7 @@ git-reviewer, reviewer \- review local git changes in your browser, and hand the
 .RB [ \-p
 .IR port ]
 .RB [ \-\-no\-open ]
+.RB [ \-\-no\-untracked ]
 .br
 .B git reviewer export
 .RI [ repository ]
@@ -60,6 +61,10 @@ in the URL.
 .B \-\-staged
 Review only staged changes, comparing HEAD with the index. Unstaged edits are
 excluded, and an empty index comparison does not fall back to the last commit.
+.TP
+.B \-\-no\-untracked
+Exclude untracked files from working directory reviews. Tracked changes remain
+reviewable. This option is only valid when serving a review.
 .TP
 .BR \-f ", " \-\-format " \fIjson\fR|\fIprompt\fR"
 Export format. The default is json.

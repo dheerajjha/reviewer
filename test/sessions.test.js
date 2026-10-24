@@ -26,6 +26,17 @@ test('sessions are independent of one another', () => {
   assert.equal(sessions.size, 2);
 });
 
+test('tracked-only scope belongs to its working session and does not leak to other views', () => {
+  const sessions = new SessionStore();
+  const filtered = sessions.create('/work/app', 'working', null, false);
+  assert.equal(sessions.get(filtered).untracked, false);
+  for (const [mode, untracked] of [['working', true], ['staged', false], ['range', false], ['lastCommit', false]]) {
+    const next = sessions.create('/work/app', mode, null, untracked);
+    assert.equal('untracked' in sessions.get(next), false);
+  }
+  assert.equal(sessions.get(filtered).untracked, false);
+});
+
 test('generated ids are unique', () => {
   const sessions = new SessionStore();
   const ids = new Set(Array.from({ length: 200 }, () => sessions.create('/work/app', 'working')));

@@ -3,6 +3,7 @@
 // In Electron, this will be the random port Electron assigned
 const API_BASE = `${window.location.origin}/api`;
 const stagedByDefault = new URLSearchParams(window.location.search).get('staged') === '1';
+const untrackedByDefault = new URLSearchParams(window.location.search).get('untracked') !== '0';
 
 let currentRepoId = null;
 let currentFiles = [];
@@ -597,8 +598,15 @@ function renderScope(data) {
   } else {
     label.append(data.mode === 'staged' ? 'Staged changes' : 'Uncommitted changes');
     if (branch) label.append(' on ', strong(branch));
-    meta.textContent = plural(data.files.length, 'file') + ' changed';
-    setNote(data.mode === 'staged' ? 'The diff excludes unstaged changes. Saved comments are shared between views and may refer to other code; check their anchors.' : null);
+    const folders = data.files.filter(file => file.directory);
+    const foldedFiles = folders.reduce((sum, file) => sum + file.fileCount, 0);
+    meta.textContent = plural(data.files.length - folders.length, 'file') + ' changed' + (folders.length
+      ? `; ${plural(folders.length, 'folder')} folded (${foldedFiles.toLocaleString('en-US')} untracked files)`
+      : '');
+    setNote(data.mode === 'staged'
+      ? 'The diff excludes unstaged changes. Saved comments are shared between views and may refer to other code; check their anchors.'
+      : data.files.some(file => file.directory) ? data.message
+        : data.untracked === false ? 'Untracked files are excluded.' : null);
   }
 
   row.classList.add('hidden');
@@ -884,7 +892,7 @@ async function loadRepo(scope = {}) {
       body: JSON.stringify(
         scope.commits ? { repoPath, commits: scope.commits }
           : scope.base ? { repoPath, base: scope.base, ...(scope.head ? { head: scope.head } : {}) }
-            : { repoPath, staged: stagedByDefault }
+            : { repoPath, staged: stagedByDefault, ...(untrackedByDefault ? {} : { untracked: false }) }
       )
     });
 
@@ -920,13 +928,13 @@ async function loadRepo(scope = {}) {
       // `message`, and the scope bar above is still showing how many commits
       // that covers -- so this is information, not an error, and it must not
       // be dressed as one.
-      if (data.mode === 'range' || data.mode === 'staged') {
+      if (data.mode === 'range' || data.mode === 'staged' || data.untracked === false) {
         // The scope bar is already explaining this; a status line repeating
         // it underneath is two bars saying one thing.
         clearStatus();
         hidePicker();
         displayFiles([]);
-        showEmptyFileList(data.mode === 'staged' ? 'No staged changes.' : data.range?.kind !== 'commits'
+        showEmptyFileList(data.mode === 'staged' ? 'No staged changes.' : data.mode === 'working' ? 'No tracked changes.' : data.range?.kind !== 'commits'
           ? 'No files differ between these two.'
           : data.range.first === data.range.last
             ? 'This commit changes no files.'
@@ -984,7 +992,8 @@ async function loadRepo(scope = {}) {
     // repository does not move you off what you were reading.
     if (currentFiles.length > 0) {
       const previous = currentFiles.findIndex(file => file.path === currentFile);
-      const opening = previous === -1 ? 0 : previous;
+      const firstFile = currentFiles.findIndex(file => !file.directory);
+      const opening = previous === -1 ? Math.max(0, firstFile) : previous;
 
       loadFile(currentFiles[opening].path, opening);
       offerHelpOnce();
@@ -1029,7 +1038,7 @@ function displayFiles(files) {
   filesList.innerHTML = files.map((fileObj, index) => {
     const file = fileObj.path;
     const status = fileObj.status;
-    const parts = file.split('/');
+    const parts = (fileObj.directory ? file.slice(0, -1) : file).split('/');
     const filename = parts[parts.length - 1];
     const path = parts.slice(0, -1).join('/');
 
@@ -1038,9 +1047,10 @@ function displayFiles(files) {
     // both halves are escaped going in. They were not, and a name is chosen by
     // whatever repository is open: markup in one was drawn as markup, without
     // anyone clicking anything.
-    const displayText = path
+    let displayText = path
       ? `${escapeHtml(path)}/<span class="filename">${escapeHtml(filename)}</span>`
       : `<span class="filename">${escapeHtml(filename)}</span>`;
+    if (fileObj.directory) displayText = `<bdi dir="ltr">${displayText}/</bdi>`;
     const statusClass = fileStatusClass(status);
     // One letter is git's vocabulary, not everyone's. The name rides along as
     // a tooltip and as the accessible label, so "D" is never the only thing
@@ -1061,11 +1071,16 @@ function displayFiles(files) {
     // true, and re-rendering the list is what loses the selected row.
     return `<div class="file-item" onclick="openFileAt(${Number(index)})" title="${escapeHtml(file)}">
       ${statusBadge}<span class="file-path-text">${displayText}</span>
+      ${fileObj.directory ? `<span class="file-fold-count">${Number(fileObj.fileCount).toLocaleString('en-US')} files</span>` : ''}
       <span class="file-comment-count" data-file-index="${Number(index)}" hidden></span>
     </div>`;
   }).join('');
 
-  fileCount.textContent = `${files.length} file${files.length !== 1 ? 's' : ''}`;
+  const folders = files.filter(file => file.directory).length;
+  const individualFiles = files.length - folders;
+  fileCount.textContent = `${individualFiles} file${individualFiles !== 1 ? 's' : ''}` + (folders
+    ? ` · ${folders} folder${folders !== 1 ? 's' : ''}`
+    : '');
   sidebar.classList.remove('hidden');
   resizeHandle.classList.remove('hidden');
   submitBtn.classList.remove('hidden');
@@ -1093,6 +1108,7 @@ function openFileAt(index) {
 // Load file content
 async function loadFile(filePath, index) {
   if (!currentRepoId) return Promise.resolve();
+  const repoId = currentRepoId;
 
   currentFile = filePath;
   currentFileIndex = index; // Track for keyboard navigation
@@ -1109,9 +1125,30 @@ async function loadFile(filePath, index) {
     }
   });
 
+  const file = currentFiles[index];
+  const fullContextButton = document.querySelector('.full-context-btn');
+  if (fullContextButton) fullContextButton.disabled = !!file?.directory;
+  if (file?.directory) {
+    // A folded row describes a directory; there is no file or diff to fetch.
+    currentDiffLines = [];
+    document.getElementById('currentFile').textContent = filePath;
+    const section = document.getElementById('codeSection');
+    section.classList.remove('hidden');
+    section.style.display = 'block';
+    document.getElementById('codeViewer').innerHTML =
+      `<div class="binary-notice">${Number(file.fileCount).toLocaleString('en-US')} untracked files` +
+      '<span>This directory is folded because it contains more than 200 files. ' +
+      'Individual files and diffs are not shown. Add generated output to .gitignore to exclude it from future reviews.</span></div>';
+    updateFullContextButton();
+    return;
+  }
+
   try {
-    const response = await fetch(`${API_BASE}/file/${currentRepoId}/${filePath}`);
+    const response = await fetch(`${API_BASE}/file/${repoId}/${filePath}`);
     const data = await response.json();
+    // A directory can be selected while a previous file request is in flight.
+    // Its no-diff pane must not be replaced with that file's editable lines.
+    if (currentRepoId !== repoId || currentFile !== filePath) return;
 
     if (!response.ok) {
       throw new Error(data.error || 'Failed to load file');
@@ -1178,6 +1215,7 @@ async function loadFile(filePath, index) {
     return Promise.resolve();
 
   } catch (error) {
+    if (currentRepoId !== repoId || currentFile !== filePath) return;
     showStatus(`Error loading file: ${error.message}`, 'error');
     return Promise.reject(error);
   }
@@ -2060,6 +2098,9 @@ let storedFullFileLines = null;
 // Toggle between full context and diff-only view
 async function showFullContext() {
   if (!currentRepoId || !currentFile) return;
+  if (currentFiles.some(file => file.path === currentFile && file.directory)) return;
+  const repoId = currentRepoId;
+  const filePath = currentFile;
 
   if (isFullContextMode) {
     // Switch back to diff view
@@ -2069,8 +2110,9 @@ async function showFullContext() {
   } else {
     // Switch to full context
     try {
-      const response = await fetch(`${API_BASE}/file-full/${currentRepoId}/${currentFile}`);
+      const response = await fetch(`${API_BASE}/file-full/${repoId}/${filePath}`);
       const data = await response.json();
+      if (currentRepoId !== repoId || currentFile !== filePath) return;
 
       if (!response.ok) {
         throw new Error(data.error || 'Failed to load full file content');
@@ -2082,6 +2124,7 @@ async function showFullContext() {
       updateFullContextButton();
 
     } catch (error) {
+      if (currentRepoId !== repoId || currentFile !== filePath) return;
       showStatus(`Error loading full context: ${error.message}`, 'error');
     }
   }
