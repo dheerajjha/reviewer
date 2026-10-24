@@ -49,6 +49,7 @@ function loadContext(data) {
     refreshCommitContext: async () => {}, loadRefs: async () => {},
     renderScope() {}, renderCommitList() {}, updateCommentsSidebar() {},
     displayFiles() {}, showEmptyFileList() {}, clearCodePane() {}, offerHelpOnce() {}, openReviewEvents() {},
+    searchState: { open: false }, runSearch() {},
     loadCommentsFromBackend: async () => [], loadFile() {},
     plural: (n, word) => `${n} ${word}`,
     fetch: async (url, options) => {

@@ -3,7 +3,7 @@
 [![CI](https://github.com/dheerajjha/reviewer/actions/workflows/ci.yml/badge.svg)](https://github.com/dheerajjha/reviewer/actions/workflows/ci.yml)
 [![License: MIT](https://img.shields.io/badge/license-MIT-blue.svg)](LICENSE)
 [![Node](https://img.shields.io/badge/node-%3E%3D18-brightgreen.svg)](package.json)
-[![Tests](https://img.shields.io/badge/tests-500-brightgreen.svg)](test/)
+[![Tests](https://img.shields.io/badge/tests-509-brightgreen.svg)](test/)
 [![Dependencies](https://img.shields.io/badge/dependencies-3-brightgreen.svg)](package.json)
 
 **English** · [简体中文](docs/README.zh-CN.md) · [日本語](docs/README.ja.md)
@@ -274,6 +274,32 @@ so the app shows you rather than telling you. **Reviewing, in four moves** opens
 by itself the first time you review anything, and lives behind the `?` in the
 header after that. Each move is a small animation of the gesture itself.
 
+### Search across the change
+
+<kbd>Ctrl</kbd>/<kbd>⌘</kbd>+<kbd>Shift</kbd>+<kbd>F</kbd> searches every changed file at once, the way
+an IDE's find navigator searches a project. Each result says which side of
+the change it is on: added, deleted, unchanged code in a changed file, or,
+with **Whole repository**, code elsewhere that the change did not touch.
+That answers "this function is new: where is it called, and where was it
+called before?" without leaving the review. Filter to **Deleted** for the
+second half.
+
+- **Match** contains, whole word, starts with, ends with, or a regular
+  expression; **Aa** matches case.
+- **Refs** is a references search. Select a name in the diff and press the
+  shortcut. Results are split into the definition and the uses that were
+  added, removed and left unchanged. If the definition changed while some
+  uses didn't, it says so, since that is often where a change breaks
+  something.
+- <kbd>↑</kbd>/<kbd>↓</kbd> and <kbd>Enter</kbd> go to a result,
+  <kbd>⌘</kbd>/<kbd>Ctrl</kbd>+<kbd>G</kbd> steps through them, marks on the
+  diff's edge show the matches in the open file, and **Comment** starts a
+  comment on that line.
+
+Repository search runs `git grep` against the exact tree under review: the
+working tree, the index, or the head of a comparison. Its regular
+expressions are git's extended dialect.
+
 ## What it writes
 
 Two files, both plain text you can read without this app, both in a per-user
@@ -454,6 +480,7 @@ The UI is a client of this; nothing is hidden from you.
 | `POST /api/save-comments` | Persist the current comments. Send back the `lastUpdated` you loaded and the save is conditional: if the file has moved on since, it answers `409` with the current `comments` and `lastUpdated` instead of overwriting them |
 | `GET /api/load-comments/:repoId` | Restore saved comments, with `lastUpdated`, the version token a conditional save sends back |
 | `POST /api/submit-review` | Render the saved comments to a review file |
+| `GET /api/search/:repoId` | Search the review: `q`, `mode` (contains, word, prefix, suffix, regex), `case=1`, `scope` (changes, files, repo) and `symbol=1` for a references search. Each result has its `side` of the change and the `diffIndex` of its line in the file's diff |
 | `GET /api/events/:repoId` | Server-sent events for an open review: `comments` whenever the saved comments change, whoever changed them; `agents` as agents connect, leave or start on a thread; `partial` with an answer still being written |
 | `GET /api/agent/sessions/:repoId` | The Claude Code sessions that ran in this repository, newest first |
 | `POST /api/agent/connect` | `{repoId, sessionId, fork}`: have that session answer the review's comments in the background. `fork` defaults to `true`, a copy of the session |
@@ -528,7 +555,7 @@ rather than a public issue.
 
 ```bash
 npm install           # 3 dependencies, no build step, ~6MB
-npm test              # 500 tests
+npm test              # 509 tests
 npm run test:watch
 npm run test:coverage
 ```

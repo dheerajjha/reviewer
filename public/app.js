@@ -1169,6 +1169,8 @@ async function loadRepo(scope = {}) {
     // From here on, comments written anywhere else -- another tab, an agent
     // answering in a thread -- arrive as they are written.
     openReviewEvents(currentRepoId);
+    document.getElementById('searchButton')?.classList.remove('hidden');
+    if (searchState.open) runSearch();
 
     // Open something. A loaded repository used to sit behind an empty pane
     // until a file was clicked, which reads as a failure rather than as a
@@ -1524,6 +1526,7 @@ function displayCode(filePath, diffLines, binary) {
 
   codeViewer.innerHTML = html;
   codeSection.classList.remove('hidden');
+  renderSearchMinimap();
 
   // Add text selection handler
   codeViewer.removeEventListener('mousedown', trackShiftKeyDown);
@@ -2219,6 +2222,8 @@ async function cleanupRepo() {
 // Reset application
 function resetApp() {
   closeReviewEvents();
+  closeSearch();
+  document.getElementById('searchButton')?.classList.add('hidden');
   currentRepoId = null;
   currentFiles = [];
   currentFile = null;
@@ -2887,9 +2892,17 @@ function showPartialAnswer(key) {
   else box.querySelector('.comment-text')?.insertAdjacentHTML('afterend', html);
 }
 
+// What the threads last showed about agents, so a report that changes
+// nothing a reader can see -- the first one on connecting, say -- does not
+// redraw the code (and throw away a scroll, a flash or a selection).
+let pendingSignature = '';
+
 /** Redraw every thread's pending state after who-is-answering-what changed. */
 function refreshPendingAnswers() {
   renderAgentButton();
+  const signature = JSON.stringify([agentConnected(), [...threadsBeingAnswered()].sort()]);
+  if (signature === pendingSignature) return;
+  pendingSignature = signature;
   updateCommentsSidebar();
   commentsPaneStale = true;
   redrawCommentsPane();
@@ -3099,6 +3112,371 @@ async function copyConnectCommand(index) {
   }
 }
 
+/*
+ * Search across the change.
+ *
+ * Every changed file at once, and with "Whole repository" the code around
+ * the change too, so "this function is new -- where is it called, and where
+ * was it called before?" has an answer without leaving the review. Each
+ * result says which side of the change it is on; a references search also
+ * tells the definition from the uses. The server does the searching (see
+ * lib/search.js); this is the find navigator around it.
+ */
+
+const searchState = {
+  open: false,
+  results: [],
+  summary: null,
+  side: 'all',
+  selected: -1,
+  collapsed: new Set(),
+  previews: new Map(),
+  timer: null,
+  controller: null,
+  query: ''
+};
+
+const SEARCH_HISTORY_KEY = 'reviewer.searchHistory';
+
+function searchHistory() {
+  try {
+    const stored = JSON.parse(localStorage.getItem(SEARCH_HISTORY_KEY) || '[]');
+    return Array.isArray(stored) ? stored.filter(item => typeof item === 'string').slice(0, 10) : [];
+  } catch {
+    return [];
+  }
+}
+
+function rememberSearch(query) {
+  const history = [query, ...searchHistory().filter(item => item !== query)].slice(0, 10);
+  try {
+    localStorage.setItem(SEARCH_HISTORY_KEY, JSON.stringify(history));
+  } catch {
+    /* a private window: history is a convenience */
+  }
+  renderSearchHistory();
+}
+
+function renderSearchHistory() {
+  const list = document.getElementById('searchHistory');
+  if (!list) return;
+  list.replaceChildren(...searchHistory().map(item => Object.assign(document.createElement('option'), { value: item })));
+}
+
+/**
+ * Open the search, taking the sidebar's place. With code selected in the
+ * diff, the selection becomes the query and a references search runs for
+ * it: select a function's name, press Ctrl+Shift+F, see where it is used.
+ */
+function openSearch(prefill = null) {
+  if (!currentRepoId) return;
+  const sidebar = document.getElementById('sidebar');
+  document.getElementById('searchPanel').classList.remove('hidden');
+  sidebar.classList.add('searching');
+  searchState.open = true;
+  renderSearchHistory();
+
+  const input = document.getElementById('searchInput');
+  if (prefill) {
+    input.value = prefill;
+    const identifier = /^[A-Za-z_$][\w$]*$/.test(prefill);
+    document.getElementById('searchRefs').setAttribute('aria-pressed', identifier ? 'true' : 'false');
+    runSearch();
+  }
+  input.focus();
+  input.select();
+}
+
+function closeSearch() {
+  document.getElementById('searchPanel').classList.add('hidden');
+  document.getElementById('sidebar').classList.remove('searching');
+  searchState.open = false;
+  renderSearchMinimap();
+}
+
+function scheduleSearch() {
+  clearTimeout(searchState.timer);
+  searchState.timer = setTimeout(runSearch, 160);
+}
+
+/** Ask the server, abandoning whatever search this one replaces. */
+async function runSearch() {
+  const query = document.getElementById('searchInput').value;
+  const summary = document.getElementById('searchSummary');
+  searchState.controller?.abort();
+  if (!currentRepoId || query.trim() === '') {
+    searchState.results = [];
+    searchState.summary = null;
+    searchState.query = '';
+    summary.textContent = '';
+    renderSearchResults();
+    return;
+  }
+
+  const symbol = document.getElementById('searchRefs').getAttribute('aria-pressed') === 'true';
+  const params = new URLSearchParams({
+    q: query,
+    mode: document.getElementById('searchMode').value,
+    scope: document.getElementById('searchScope').value,
+    case: document.getElementById('searchCase').getAttribute('aria-pressed') === 'true' ? '1' : '0',
+    ...(symbol ? { symbol: '1' } : {})
+  });
+  const controller = new AbortController();
+  searchState.controller = controller;
+  summary.textContent = 'Searching…';
+
+  try {
+    const response = await fetch(`${API_BASE}/search/${currentRepoId}?${params}`, { signal: controller.signal });
+    const data = await response.json();
+    if (controller.signal.aborted) return;
+    if (!response.ok) {
+      summary.replaceChildren(Object.assign(document.createElement('span'), { className: 'search-error', textContent: data.error || 'Search failed.' }));
+      searchState.results = [];
+      renderSearchResults();
+      return;
+    }
+    searchState.results = data.results;
+    searchState.summary = data;
+    searchState.query = query;
+    searchState.selected = data.results.length > 0 ? 0 : -1;
+    searchState.previews.clear();
+    renderSearchSummary();
+    renderSearchResults();
+  } catch (error) {
+    if (error.name !== 'AbortError') summary.textContent = `Search failed: ${error.message}`;
+  }
+}
+
+function sideMatches(result) {
+  const side = searchState.side;
+  if (side === 'all') return true;
+  if (side === 'unchanged') return result.side === 'context' || result.side === 'untouched';
+  return result.side === side;
+}
+
+function visibleResults() {
+  return searchState.results.filter(sideMatches);
+}
+
+function renderSearchSummary() {
+  const data = searchState.summary;
+  const summary = document.getElementById('searchSummary');
+  if (!data) return;
+  const shown = visibleResults().length;
+  const parts = [`${shown} ${shown === 1 ? 'result' : 'results'} in ${data.files} ${data.files === 1 ? 'file' : 'files'}`];
+  if (data.truncated) parts.push('more not shown');
+  parts.push(`${data.ms} ms`);
+  summary.replaceChildren(document.createTextNode(parts.join(' · ')));
+  if (data.summary) {
+    const s = data.summary;
+    summary.append(document.createElement('br'), document.createTextNode(
+      `${s.definitions} ${s.definitions === 1 ? 'definition' : 'definitions'} · ${s.added} added · ${s.removed} removed · ${s.unchanged} unchanged ${s.unchanged === 1 ? 'use' : 'uses'}`
+    ));
+    if (s.warning) summary.append(Object.assign(document.createElement('span'), { className: 'search-warning', textContent: s.warning }));
+  }
+}
+
+/** A result's line, with what matched marked. Each piece is escaped on its own. */
+function markedText(result) {
+  let html = '';
+  let at = 0;
+  for (const [start, end] of result.ranges) {
+    html += escapeHtml(result.text.slice(at, start)) + `<mark>${escapeHtml(result.text.slice(start, end))}</mark>`;
+    at = end;
+  }
+  return html + escapeHtml(result.text.slice(at));
+}
+
+const SIDE_MARK = { added: '+', deleted: '−', context: '·', untouched: '·' };
+const SIDE_NAME = { added: 'added', deleted: 'deleted', context: 'unchanged', untouched: 'outside the change' };
+
+function renderSearchResults() {
+  const container = document.getElementById('searchResults');
+  const results = visibleResults();
+  const groups = new Map();
+  results.forEach((result, index) => {
+    if (!groups.has(result.file)) groups.set(result.file, []);
+    groups.get(result.file).push({ result, index });
+  });
+
+  let html = '';
+  for (const [file, hits] of groups) {
+    const expanded = !searchState.collapsed.has(file);
+    const reviewed = currentFiles.some(f => f.path === file);
+    html += `<button type="button" class="search-file" data-file="${escapeHtml(file)}" aria-expanded="${expanded}">` +
+      `<span>${escapeHtml(file)}${reviewed ? '' : ' <span class="elsewhere">not in this review</span>'}</span>` +
+      `<span class="count">${hits.length}</span></button><div class="search-group">`;
+    for (const { result, index } of hits) {
+      const canComment = reviewed && result.diffIndex !== null;
+      html += `<div class="search-hit${index === searchState.selected ? ' selected' : ''}" role="option" data-index="${index}" data-side="${result.side}"` +
+        ` title="Line ${result.line}, ${SIDE_NAME[result.side]}">` +
+        `<span class="side">${SIDE_MARK[result.side]}</span><span class="num">${Number(result.line)}</span>` +
+        `<span class="text">${result.role === 'definition' ? '<span class="role">def </span>' : ''}${markedText(result)}</span>` +
+        `${canComment ? `<button type="button" class="hit-comment" data-comment="${index}" title="Comment on this line">Comment</button>` : ''}</div>`;
+      const preview = searchState.previews.get(index);
+      if (preview) html += `<div class="search-preview">${preview}</div>`;
+    }
+    html += '</div>';
+  }
+  if (searchState.query && results.length === 0) {
+    html = '<div class="search-summary" style="padding: 8px 14px">Nothing matches on this side of the change.</div>';
+  }
+  container.innerHTML = html;
+  container.querySelector('.search-hit.selected')?.scrollIntoView({ block: 'nearest' });
+  renderSearchMinimap();
+}
+
+function moveSearchSelection(delta) {
+  const count = visibleResults().length;
+  if (count === 0) return;
+  searchState.selected = (searchState.selected + delta + count) % count;
+  renderSearchResults();
+}
+
+/**
+ * Go to a result: open its file in the diff and bring the line into view.
+ * A line outside the review has no diff to show, so its neighbourhood opens
+ * under it instead.
+ */
+async function openSearchResult(index, { comment = false } = {}) {
+  const result = visibleResults()[index];
+  if (!result) return;
+  searchState.selected = index;
+
+  const fileIndex = currentFiles.findIndex(f => f.path === result.file);
+  if (fileIndex === -1 || result.diffIndex === null) {
+    await togglePreview(index, result);
+    return;
+  }
+
+  if (currentFile !== result.file) await loadFile(result.file, fileIndex);
+  renderSearchResults();
+  const line = document.querySelector(`.line[data-diff-index="${Number(result.diffIndex)}"]`);
+  if (!line) return;
+  line.scrollIntoView({ block: 'center' });
+  line.classList.remove('search-flash');
+  void line.offsetWidth;
+  line.classList.add('search-flash');
+  if (comment) {
+    const [start, end] = result.ranges[0] ?? [0, 0];
+    toggleCommentInputWithSelection(result.diffIndex, end > start ? result.text.slice(start, end) : null);
+  }
+}
+
+async function togglePreview(index, result) {
+  if (searchState.previews.has(index)) {
+    searchState.previews.delete(index);
+    renderSearchResults();
+    return;
+  }
+  try {
+    const response = await fetch(`${API_BASE}/file-full/${currentRepoId}/${result.file}`);
+    const data = await response.json();
+    if (!response.ok) throw new Error(data.error);
+    const from = Math.max(0, result.line - 4);
+    const lines = data.lines.slice(from, result.line + 3).map((text, i) => {
+      const number = from + i + 1;
+      const row = `${String(number).padStart(5)}  ${escapeHtml(text)}`;
+      return number === result.line ? `<span class="focus">${row}</span>` : row;
+    });
+    searchState.previews.set(index, lines.join('\n'));
+  } catch (error) {
+    searchState.previews.set(index, escapeHtml(`Could not read ${result.file}: ${error.message}`));
+  }
+  renderSearchResults();
+}
+
+/** Marks on the diff's edge for every result in the open file. */
+function renderSearchMinimap() {
+  const strip = document.getElementById('searchMinimap');
+  if (!strip) return;
+  const total = currentDiffLines.length;
+  const here = searchState.open && total > 0
+    ? visibleResults().map((result, index) => ({ result, index })).filter(({ result }) => result.file === currentFile && result.diffIndex !== null)
+    : [];
+  strip.classList.toggle('hidden', here.length === 0);
+  strip.innerHTML = here.map(({ result, index }) =>
+    `<span data-index="${index}" data-side="${result.side}" style="top: ${((result.diffIndex / total) * 100).toFixed(2)}%" title="Line ${Number(result.line)}"></span>`
+  ).join('');
+}
+
+function initSearch() {
+  const input = document.getElementById('searchInput');
+  input.addEventListener('input', scheduleSearch);
+  input.addEventListener('keydown', event => {
+    if (event.key === 'ArrowDown') { event.preventDefault(); moveSearchSelection(1); }
+    if (event.key === 'ArrowUp') { event.preventDefault(); moveSearchSelection(-1); }
+    if (event.key === 'Enter') {
+      event.preventDefault();
+      const query = input.value.trim();
+      if (query) rememberSearch(query);
+      if (searchState.query !== input.value) runSearch();
+      else openSearchResult(Math.max(0, searchState.selected));
+    }
+    if (event.key === 'Escape') { event.preventDefault(); closeSearch(); }
+  });
+  for (const id of ['searchCase', 'searchRefs']) {
+    document.getElementById(id).addEventListener('click', event => {
+      const button = event.currentTarget;
+      button.setAttribute('aria-pressed', button.getAttribute('aria-pressed') === 'true' ? 'false' : 'true');
+      runSearch();
+      input.focus(); // the arrow keys and Enter keep working on the results
+    });
+  }
+  for (const id of ['searchMode', 'searchScope']) {
+    document.getElementById(id).addEventListener('change', () => {
+      runSearch();
+      input.focus();
+    });
+  }
+  document.querySelector('.search-sides').addEventListener('click', event => {
+    const button = event.target.closest('button[data-side]');
+    if (!button) return;
+    searchState.side = button.dataset.side;
+    document.querySelectorAll('.search-sides button').forEach(b => b.classList.toggle('active', b === button));
+    searchState.selected = visibleResults().length > 0 ? 0 : -1;
+    renderSearchSummary();
+    renderSearchResults();
+  });
+  document.getElementById('searchResults').addEventListener('click', event => {
+    const commentButton = event.target.closest('[data-comment]');
+    if (commentButton) {
+      event.stopPropagation();
+      openSearchResult(Number(commentButton.dataset.comment), { comment: true });
+      return;
+    }
+    const header = event.target.closest('.search-file');
+    if (header) {
+      const file = header.dataset.file;
+      if (searchState.collapsed.has(file)) searchState.collapsed.delete(file);
+      else searchState.collapsed.add(file);
+      renderSearchResults();
+      return;
+    }
+    const hit = event.target.closest('.search-hit');
+    if (hit) openSearchResult(Number(hit.dataset.index));
+  });
+  document.getElementById('searchMinimap').addEventListener('click', event => {
+    const mark = event.target.closest('span[data-index]');
+    if (mark) openSearchResult(Number(mark.dataset.index));
+  });
+
+  // Ctrl/Cmd+Shift+F from anywhere; Ctrl/Cmd+G and Shift+Ctrl/Cmd+G step
+  // through the results while the search is open, as in an IDE.
+  document.addEventListener('keydown', event => {
+    const mod = event.metaKey || event.ctrlKey;
+    if (mod && event.shiftKey && event.key.toLowerCase() === 'f') {
+      event.preventDefault();
+      const selection = window.getSelection?.().toString().trim();
+      openSearch(selection && !selection.includes('\n') && selection.length <= 200 ? selection : null);
+    } else if (mod && event.key.toLowerCase() === 'g' && searchState.open && visibleResults().length > 0) {
+      event.preventDefault();
+      moveSearchSelection(event.shiftKey ? -1 : 1);
+      openSearchResult(searchState.selected);
+    }
+  });
+}
+
 // Allow Enter key to load repo
 /**
  * Tell the server this tab exists, by holding a connection open for as long
@@ -3137,6 +3515,7 @@ function stopWatchingFromThisTab() {
 
 document.addEventListener('DOMContentLoaded', () => {
   watchFromThisTab();
+  initSearch();
 
   // A tab you were only reading catches up on other tabs' comments when it
   // comes back into view. See refreshCommentsFromElsewhere.

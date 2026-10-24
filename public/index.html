@@ -25,6 +25,13 @@
           <span id="agentButtonLabel">Ask Claude Code</span>
         </button>
 
+        <button id="searchButton" class="icon-button hidden" onclick="openSearch()"
+                title="Search the change (Ctrl+Shift+F)" aria-label="Search the change">
+          <svg width="16" height="16" viewBox="0 0 16 16" fill="currentColor" aria-hidden="true">
+            <path d="M10.68 11.74a6 6 0 01-7.92-8.98 6 6 0 018.98 7.92l3.04 3.04a.75.75 0 11-1.06 1.06l-3.04-3.04zM11.5 7a4.5 4.5 0 10-9 0 4.5 4.5 0 009 0z"></path>
+          </svg>
+        </button>
+
         <button id="helpButton" class="icon-button" onclick="openHelp()"
                 title="How to review" aria-label="How to review">
           <svg width="16" height="16" viewBox="0 0 16 16" fill="currentColor" aria-hidden="true">
@@ -236,6 +243,45 @@
     </div>
 
     <aside id="sidebar" class="sidebar hidden">
+      <!-- Find across the whole change, the way an IDE's find navigator
+           searches a project: it takes the sidebar's place while open. -->
+      <section id="searchPanel" class="search-panel hidden" aria-label="Search the change">
+        <div class="search-head">
+          <h2>Search</h2>
+          <button class="search-back" type="button" onclick="closeSearch()" title="Back to the files (Esc)">Files</button>
+        </div>
+        <div class="search-box">
+          <input id="searchInput" type="search" list="searchHistory" placeholder="Find in the change"
+                 spellcheck="false" autocomplete="off" aria-label="Find in the change">
+          <datalist id="searchHistory"></datalist>
+          <button id="searchCase" class="search-toggle" type="button" aria-pressed="false" title="Match case">Aa</button>
+          <button id="searchRefs" class="search-toggle" type="button" aria-pressed="false"
+                  title="Find references: the definition, and uses added, removed and left unchanged">Refs</button>
+        </div>
+        <div class="search-options">
+          <select id="searchMode" aria-label="How to match">
+            <option value="contains">Contains</option>
+            <option value="word">Whole word</option>
+            <option value="prefix">Starts with</option>
+            <option value="suffix">Ends with</option>
+            <option value="regex">Regular expression</option>
+          </select>
+          <select id="searchScope" aria-label="Where to search">
+            <option value="changes">Changed lines</option>
+            <option value="files" selected>Changed files</option>
+            <option value="repo">Whole repository</option>
+          </select>
+        </div>
+        <div class="search-sides" role="group" aria-label="Show results">
+          <button type="button" data-side="all" class="active">All</button>
+          <button type="button" data-side="added">Added</button>
+          <button type="button" data-side="deleted">Deleted</button>
+          <button type="button" data-side="unchanged">Unchanged</button>
+        </div>
+        <div id="searchSummary" class="search-summary" role="status" aria-live="polite"></div>
+        <div id="searchResults" class="search-results" role="listbox" aria-label="Search results"></div>
+      </section>
+
       <!-- The commits a review is made of, when it is made of commits. Click
            one to review it on its own; shift-click a second to review the run
            between them -- the same gesture a pull request's commit picker
@@ -270,6 +316,7 @@
         </button>
       </div>
       <div id="codeViewer" class="code-viewer"></div>
+      <div id="searchMinimap" class="search-minimap hidden" aria-hidden="true"></div>
     </main>
 
     <div id="commentsResizeHandle" class="resize-handle hidden"></div>

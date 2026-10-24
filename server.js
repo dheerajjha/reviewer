@@ -30,6 +30,9 @@ const { listClaudeSessions, findClaudeSession } = require('./lib/claude-sessions
 const { BackgroundSession } = require('./lib/claude-background');
 const { Answerer } = require('./lib/answerer');
 const { resolveClaudeCommand } = require('./lib/claude-command');
+const {
+  buildMatcher, searchDiffs, grepRepository, definesName, summarizeReferences, SearchError, SCOPES, MAX_RESULTS
+} = require('./lib/search');
 
 const DEFAULT_PORT = 4500;
 const DEFAULT_HOST = '127.0.0.1';
@@ -988,6 +991,11 @@ function createApp(options = {}) {
       sessions.get(repoId).foldedDirectories = new Map(
         files.filter(file => file.directory).map(file => [file.path, file.fileCount])
       );
+      // What a search of the review looks through: the files it shows, less
+      // folded directories and binaries, which have no lines to match.
+      sessions.get(repoId).files = files
+        .filter(file => !file.directory && file.status !== 'B')
+        .map(file => file.path);
       // stderr, not stdout. `reviewer | claude -p ...` puts the finished
       // review on stdout, and anything else written there lands in the middle
       // of it. Progress is for the person watching; stdout is for the pipe.
@@ -1427,6 +1435,122 @@ function createApp(options = {}) {
     });
     live.emit('event', session.repoPath, 'answerer', null);
     res.json({ disconnected: Boolean(answerer) });
+  });
+
+  // A review's diffs are built once and searched as the reviewer types; this
+  // long is long enough for a burst of typing and short enough to notice an
+  // edit made since.
+  const SEARCH_CACHE_MS = 15000;
+
+  /**
+   * Every changed file's diff, as the page draws it, for searching.
+   *
+   * @param {object} session
+   * @returns {Promise<Array<{path: string, lines: object[]}>>}
+   */
+  async function diffsForSearch(session) {
+    const cached = session.searchCache;
+    if (cached && Date.now() - cached.at < SEARCH_CACHE_MS) return cached.files;
+
+    const git = gitFactory(session.repoPath);
+    const paths = session.files ?? [];
+    const files = [];
+    // A few at a time: a review of two hundred files should not start two
+    // hundred git processes at once.
+    for (let i = 0; i < paths.length; i += 8) {
+      const batch = await Promise.all(paths.slice(i, i + 8).map(async filePath => {
+        try {
+          const diffText = await diffForFile(git, session, filePath);
+          if (isBinaryDiff(diffText)) return null;
+          const content = await readFileForMode(session, filePath);
+          return { path: filePath, lines: parseDiff(diffText, content) };
+        } catch {
+          return null; // gone since the review was opened
+        }
+      }));
+      files.push(...batch.filter(Boolean));
+    }
+
+    session.searchCache = { at: Date.now(), files };
+    return files;
+  }
+
+  /**
+   * Search the review: every changed file at once, and with `scope=repo` the
+   * rest of the repository at the tree under review.
+   *
+   * `q` is the text; `mode` is contains, word, prefix, suffix or regex;
+   * `case=1` matches case; `scope` is changes (lines the change added or
+   * deleted), files (every line of the changed files) or repo. `symbol=1`
+   * is a references search: whole word, case-sensitive, and each result is
+   * marked as a definition or a use. Results say which side of the change
+   * they are on, and `diffIndex` is the line's position in the diff the
+   * page draws for that file.
+   */
+  app.get('/api/search/:repoId', async (req, res) => {
+    const session = requireSession(res, req.params.repoId);
+    if (!session) return;
+
+    const pick = name => (typeof req.query[name] === 'string' ? req.query[name] : '');
+    const query = pick('q');
+    const symbol = pick('symbol') === '1';
+    const scope = pick('scope') || 'files';
+    const match = { mode: symbol ? 'word' : (pick('mode') || 'contains'), caseSensitive: symbol || pick('case') === '1' };
+    if (!SCOPES.includes(scope)) {
+      return res.status(400).json({ error: `Unknown scope "${scope}".` });
+    }
+
+    let matcher;
+    try {
+      matcher = buildMatcher(query, match);
+    } catch (error) {
+      if (error instanceof SearchError) return res.status(400).json({ error: error.message });
+      throw error;
+    }
+
+    try {
+      const started = Date.now();
+      const files = await diffsForSearch(session);
+      const found = searchDiffs(files, matcher, { changedOnly: scope === 'changes' });
+      let { results, truncated } = found;
+
+      if (scope === 'repo' && results.length < MAX_RESULTS) {
+        const elsewhere = await grepRepository({
+          repoPath: session.repoPath,
+          session,
+          query,
+          match,
+          matcher,
+          exclude: new Set(files.map(file => file.path)),
+          limit: MAX_RESULTS - results.length
+        });
+        results = results.concat(elsewhere.results);
+        truncated = truncated || elsewhere.truncated;
+      }
+
+      let summary = null;
+      if (symbol) {
+        for (const result of results) result.role = definesName(result.text, query) ? 'definition' : 'reference';
+        summary = summarizeReferences(results);
+      }
+
+      res.json({
+        query,
+        scope,
+        mode: match.mode,
+        caseSensitive: match.caseSensitive,
+        symbol,
+        results,
+        truncated,
+        files: new Set(results.map(result => result.file)).size,
+        searched: files.length,
+        ms: Date.now() - started,
+        summary
+      });
+    } catch (error) {
+      console.error('Search error:', error);
+      res.status(500).json({ error: error.message });
+    }
   });
 
   /** Drop a session. Saved comments on disk are left alone. */

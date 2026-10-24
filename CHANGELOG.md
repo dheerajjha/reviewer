@@ -6,6 +6,22 @@ adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
 ## [Unreleased]
 
+### Added
+
+- **Search across the change.** Ctrl/⌘+Shift+F opens a find navigator over
+  every changed file at once. Each result is marked as added, deleted, or
+  unchanged, and **Whole repository** adds code elsewhere that the change did
+  not touch, through `git grep` at the tree under review. It supports
+  contains, whole word, starts with, ends with and regular expressions, with
+  a case toggle.
+- **Refs** is a references search: the definition, and the uses added,
+  removed and left unchanged. It warns when a definition changed but some of
+  its uses did not.
+- Search results work from the keyboard (arrow keys, Enter, Ctrl/⌘+G). The
+  edge of the diff shows where the open file's matches are, and any result
+  can be commented on in place. `GET /api/search/:repoId` exposes the same
+  search to other tools.
+
 ## [2.16.0] - 2026-10-24
 
 The session that wrote the code can now answer your review comments while
