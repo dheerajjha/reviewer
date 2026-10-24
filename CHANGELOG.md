@@ -6,6 +6,11 @@ adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
 ## [Unreleased]
 
+## [2.17.0] - 2026-10-24
+
+Search across the whole change, and the repository around it, from the
+review page.
+
 ### Added
 
 - **Search across the change.** Ctrl/⌘+Shift+F opens a find navigator over
@@ -924,7 +929,8 @@ Initial release: Electron desktop app and web mode for reviewing local git
 changes with inline comments, threaded follow-ups, persistent storage, and a
 GitHub-style diff view.
 
-[Unreleased]: https://github.com/dheerajjha/reviewer/compare/v2.16.0...HEAD
+[Unreleased]: https://github.com/dheerajjha/reviewer/compare/v2.17.0...HEAD
+[2.17.0]: https://github.com/dheerajjha/reviewer/compare/v2.16.0...v2.17.0
 [2.16.0]: https://github.com/dheerajjha/reviewer/compare/v2.15.0...v2.16.0
 [2.15.0]: https://github.com/dheerajjha/reviewer/compare/v2.14.1...v2.15.0
 [2.14.1]: https://github.com/dheerajjha/reviewer/compare/v2.14.0...v2.14.1
