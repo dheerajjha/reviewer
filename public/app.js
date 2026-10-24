@@ -270,6 +270,10 @@ function adoptRemoteComments(remoteComments, lastUpdated, base = commentsBase) {
 function redrawCommentsPane() {
   const typing = document.querySelector('.comment-input-box, .followup-input-box');
   if (!commentsPaneStale || !currentFile || typing) return;
+  // Nor while code is selected in the pane: that is the first half of
+  // quoting it in a comment, and a redraw would drop the selection.
+  const selection = window.getSelection?.();
+  if (selection && !selection.isCollapsed && document.getElementById('codeViewer').contains(selection.anchorNode)) return;
   if (isFullContextMode && storedFullFileLines) {
     displayFullContext(currentFile, storedFullFileLines);
     commentsPaneStale = false;

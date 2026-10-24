@@ -162,6 +162,11 @@ test('an answerer leaves the threads to a session answering live', async t => {
   await new Promise(resolve => setTimeout(resolve, 200));
 
   assert.deepEqual(asked, []);
+
+  // When the live session leaves, the thread it did not answer is taken up.
+  await live.close();
+  await until(() => asked.length === 1);
+  assert.deepEqual(asked, ['k1']);
 });
 
 test('a spawn that throws instead of failing later is reported, not thrown at the caller', async t => {
