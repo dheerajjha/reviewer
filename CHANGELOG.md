@@ -6,6 +6,13 @@ adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
 ## [Unreleased]
 
+## [2.16.0] - 2026-10-24
+
+The session that wrote the code can now answer your review comments while
+you read. Underneath that, comments have stable keys and replies say who
+wrote them, and the page updates live whoever writes the review. It also
+fixes two ways editing a comment lost data.
+
 ### Added
 
 - **Ask the session that wrote the code.** A Claude Code session can now
@@ -40,9 +47,24 @@ adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 - **Cancel on a comment being edited deleted the comment.** Escape always
   put it back; the Cancel button only closed the box, and the next save from
   any edit removed the comment from the review.
+- **Two tabs on one repository no longer overwrite each other's comments.**
+  A save carries the version it was loaded at; when the file has moved on, the
+  page merges the other tab's comments in and retries instead of overwriting
+  them ([#107](https://github.com/dheerajjha/reviewer/issues/107),
+  [#115](https://github.com/dheerajjha/reviewer/pull/115), from @mouse-far).
 - **A save can no longer erase a reply written elsewhere.** Saves go through
   a lock that holds across processes and replace the file in one step, and
   follow-ups already on disk are kept for every comment the save still holds.
+  A reply written in the page is no longer lost when an agent saves at the
+  same moment.
+
+### Security
+
+- The lockfile moves body-parser to 1.20.9, which fixes a denial of service
+  via trailing bytes after a compressed request body
+  ([#120](https://github.com/dheerajjha/reviewer/pull/120)). Installs from npm
+  already resolved 1.20.9 through express's own range; this changes what the
+  repository's CI and development installs use.
 
 ## [2.15.0] - 2026-10-24
 
@@ -886,7 +908,8 @@ Initial release: Electron desktop app and web mode for reviewing local git
 changes with inline comments, threaded follow-ups, persistent storage, and a
 GitHub-style diff view.
 
-[Unreleased]: https://github.com/dheerajjha/reviewer/compare/v2.15.0...HEAD
+[Unreleased]: https://github.com/dheerajjha/reviewer/compare/v2.16.0...HEAD
+[2.16.0]: https://github.com/dheerajjha/reviewer/compare/v2.15.0...v2.16.0
 [2.15.0]: https://github.com/dheerajjha/reviewer/compare/v2.14.1...v2.15.0
 [2.14.1]: https://github.com/dheerajjha/reviewer/compare/v2.14.0...v2.14.1
 [2.14.0]: https://github.com/dheerajjha/reviewer/compare/v2.13.1...v2.14.0
