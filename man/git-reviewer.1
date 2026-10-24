@@ -17,6 +17,23 @@ git-reviewer, reviewer \- review local git changes in your browser, and hand the
 .IR json | prompt ]
 .RB [ \-\-file
 .IR path ]
+.br
+.B git reviewer connect
+.RI [ repository ]
+.RB [ \-\-session
+.IR id ]
+.RB [ \-\-fork ]
+.RB [ \-\-list ]
+.br
+.B git reviewer reply
+.I key text
+.RB [ \-\-repo
+.IR path ]
+.RB [ \-\-as
+.IR name ]
+.br
+.B git reviewer watch
+.RI [ repository ]
 .SH DESCRIPTION
 Opens the uncommitted changes of a git repository, or its last commit on a
 clean tree, as a pull-request style review in your browser: inline comments
@@ -44,6 +61,36 @@ is the same program under a shorter name.
 .B export
 Print the saved review of a repository to stdout, as JSON or as a prompt for
 a coding agent.
+.TP
+.B connect
+Resume the Claude Code session that worked in the repository, with reviewer
+attached as a channel: every comment written in the review is sent to the
+session as it is written, and the session answers in the thread.
+.B \-\-list
+shows the sessions;
+.B \-\-session
+picks one by id or id prefix;
+.B \-\-fork
+resumes a copy. Claude Code asks once, at startup, to confirm the channel.
+.TP
+.B reply
+Post a reply in a comment thread, as an agent. Inside Claude Code it is
+signed
+.BR claude ,
+elsewhere
+.B agent
+unless
+.B \-\-as
+names who it is from. Exits 1 if no comment has that key.
+.TP
+.B watch
+Print each comment waiting for an answer, then each new comment or reply
+from the reviewer, as one JSON line, until interrupted.
+.TP
+.B channel
+The MCP server
+.B connect
+asks Claude Code to run, speaking JSON-RPC over stdio. Not run by hand.
 .SH OPTIONS
 .TP
 .BR \-p ", " \-\-port " \fIn\fR"

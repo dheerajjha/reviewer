@@ -6,6 +6,44 @@ adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
 ## [Unreleased]
 
+### Added
+
+- **Ask the session that wrote the code.** A Claude Code session can now
+  answer your comments in their threads, while you review. **Ask Claude Code**
+  in the page lists the sessions that ran in this repository. Pick one and
+  every comment and reply you write goes to it, and its answer streams into
+  the thread under the comment. It runs in a background copy of the session
+  that can read the repository and nothing else, so the original transcript
+  is untouched.
+- **`reviewer connect`** resumes that session in your terminal with reviewer
+  attached as a Claude Code channel. Every comment arrives in the live
+  session as it is written, and the session answers with a `reply` tool.
+  `reviewer channel` is the MCP server it runs, spoken over stdio with no new
+  dependencies.
+- **`reviewer watch`** and **`reviewer reply <key> <text>`** let any agent take
+  part: the first prints one JSON line per comment waiting for an answer, and
+  the second posts the answer in the thread.
+- **Comments have a stable `key`, and replies say who wrote them.** The key
+  is minted when a comment is written, and comments saved earlier get one
+  derived from their content. It is in the export beside `id`. A follow-up
+  written by an agent carries `by` (and the session it came from), and is
+  labelled in the page and in the prompt export. It is never mistaken for the
+  reviewer's own note.
+- **An open page updates live.** `GET /api/events/:repoId` streams comment
+  changes, whoever made them: another tab, an agent, `reviewer reply`. Agents
+  connecting and answers being written arrive the same way.
+
+### Fixed
+
+- **Editing a comment deleted its replies.** The edited comment was saved
+  as a new one with an empty thread. It now keeps its key and its thread.
+- **Cancel on a comment being edited deleted the comment.** Escape always
+  put it back; the Cancel button only closed the box, and the next save from
+  any edit removed the comment from the review.
+- **A save can no longer erase a reply written elsewhere.** Saves go through
+  a lock that holds across processes and replace the file in one step, and
+  follow-ups already on disk are kept for every comment the save still holds.
+
 ## [2.15.0] - 2026-10-24
 
 Four changes, each from someone contributing to reviewer for the first time.

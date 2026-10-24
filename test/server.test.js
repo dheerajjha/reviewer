@@ -288,7 +288,8 @@ test('a tracked-only review retains its scope through save, submit, reload and l
   const { body: filtered } = await loadScope(server.url, { repoPath, untracked: false });
   assert.deepEqual(filtered.files, [{ path: 'app.js', status: 'M' }]);
   const inherited = await (await fetch(`${server.url}/api/load-comments/${filtered.repoId}`)).json();
-  assert.deepEqual(inherited.comments, [oldComment]);
+  assert.deepEqual(inherited.comments.map(({ key, ...comment }) => comment), [oldComment]);
+  assert.match(inherited.comments[0].key, /^[A-Za-z0-9_-]{8}$/);
   await post('save-comments', { repoId: filtered.repoId, comments: [...inherited.comments,
     { file: 'app.js', line: 1, lineContent: 'after', text: 'Check this edit.' }
   ] });
@@ -620,7 +621,7 @@ test('comments survive a save and load round trip', async t => {
   assert.equal(loaded.comments.length, 1);
   assert.equal(loaded.comments[0].text, 'rename this');
   assert.equal(loaded.comments[0].selectedText, 'a');
-  assert.deepEqual(loaded.comments[0].followUps, [
+  assert.deepEqual(loaded.comments[0].followUps.map(({ key, ...followUp }) => followUp), [
     { text: 'still open', timestamp: '2026-08-10T09:00:00.000Z' }
   ]);
   assert.ok(!('clientOnlyField' in loaded.comments[0]));
@@ -942,7 +943,9 @@ test('submitting also writes a machine-readable review beside the text one', asy
   assert.match(body.review.repository.head, /^[0-9a-f]{40}$/);
   assert.equal(body.review.repository.branch, 'main');
   assert.equal(body.review.mode, 'working');
-  assert.deepEqual(body.review.comments, [{
+  const [{ key, ...exported }] = body.review.comments;
+  assert.match(key, /^[A-Za-z0-9_-]{8}$/, 'every exported comment carries the key replies are addressed by');
+  assert.deepEqual([exported], [{
     id: 'app.js:1',
     file: 'app.js',
     line: 1,

@@ -46,7 +46,7 @@ test('normalizeComment omits an empty follow-up list', () => {
   assert.ok(!('followUps' in normalizeComment({ file: 'a.js', line: 1, text: 'x' })));
 });
 
-test('normalizeComment reduces follow-ups to text and timestamp', () => {
+test('normalizeComment reduces follow-ups to their stored fields', () => {
   const normalized = normalizeComment({
     file: 'a.js',
     line: 1,
@@ -128,4 +128,61 @@ test('groupByFile does not mutate its input', () => {
   groupByFile(comments);
 
   assert.deepEqual(comments.map(comment => comment.line), [30, 10]);
+});
+
+const { withKeys, mintKey, isKey } = require('../lib/comments');
+
+test('a comment keeps the key it was written with, and a malformed one is refused', () => {
+  assert.equal(normalizeComment({ key: 'aB3_-x9Z', file: 'a.js', line: 1, text: 'x' }).key, 'aB3_-x9Z');
+  assert.ok(!('key' in normalizeComment({ file: 'a.js', line: 1, text: 'x' })));
+  for (const key of ['', 'has space', 'a/b', 'x'.repeat(65), 12]) {
+    assert.throws(() => normalizeComment({ key, file: 'a.js', line: 1, text: 'x' }), TypeError, `expected ${JSON.stringify(key)} to be refused`);
+  }
+});
+
+test('a follow-up keeps its key, author and session, and nothing else', () => {
+  const [followUp] = normalizeComment({
+    file: 'a.js', line: 1, text: 'x',
+    followUps: [{ key: 'f1', text: 'answer', timestamp: '2026-10-24T00:00:00.000Z', by: 'claude', session: 'abc-123', extra: 1 }]
+  }).followUps;
+
+  assert.deepEqual(followUp, { key: 'f1', text: 'answer', timestamp: '2026-10-24T00:00:00.000Z', by: 'claude', session: 'abc-123' });
+});
+
+test('a follow-up from the reviewer stores no author, and a bad author or missing text is refused', () => {
+  const [followUp] = normalizeComment({ file: 'a.js', line: 1, text: 'x', followUps: [{ text: 'mine', by: '' }] }).followUps;
+  assert.deepEqual(followUp, { text: 'mine' });
+
+  assert.throws(() => normalizeComment({ file: 'a.js', line: 1, text: 'x', followUps: [{ text: 'y', by: '<script>' }] }), TypeError);
+  assert.throws(() => normalizeComment({ file: 'a.js', line: 1, text: 'x', followUps: [{ by: 'claude' }] }), /followUps\[0\]\.text/);
+});
+
+test('two comments claiming one key are refused', () => {
+  assert.throws(
+    () => normalizeComments([{ key: 'k', file: 'a.js', line: 1, text: 'x' }, { key: 'k', file: 'b.js', line: 2, text: 'y' }]),
+    /comments\[1\]\.key "k" is used by another comment/
+  );
+});
+
+test('comments without keys get the same derived key on every read, and duplicates get two', () => {
+  const legacy = [
+    { file: 'a.js', line: 1, text: 'same' },
+    { file: 'a.js', line: 1, text: 'same', followUps: [{ text: 'f', timestamp: 't' }] },
+    { key: 'kept1234', file: 'b.js', line: 2, text: 'keyed' }
+  ];
+
+  const first = withKeys(legacy);
+  const second = withKeys(JSON.parse(JSON.stringify(legacy)));
+
+  assert.deepEqual(first.map(c => c.key), second.map(c => c.key));
+  assert.notEqual(first[0].key, first[1].key);
+  assert.equal(first[2].key, 'kept1234');
+  assert.ok(isKey(first[1].followUps[0].key));
+  assert.equal(legacy[0].key, undefined, 'the input is left alone');
+});
+
+test('a minted key is eight URL-safe characters', () => {
+  const keys = new Set(Array.from({ length: 200 }, mintKey));
+  assert.equal(keys.size, 200);
+  for (const key of keys) assert.match(key, /^[A-Za-z0-9_-]{8}$/);
 });

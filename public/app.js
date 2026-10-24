@@ -17,14 +17,59 @@ let comments = [];
 let commentsLastUpdated = null;
 let commentsBase = [];
 
-/** A comment's identity for merging: where it sits and what it says. */
+/**
+ * A comment's identity for merging: its key. Every comment has one -- minted
+ * here when it is written, or given by the server to one saved before keys
+ * existed -- so where it sits and what it says is only a fallback.
+ */
 function commentKey(comment) {
-  return JSON.stringify([comment.file, comment.line, comment.text]);
+  return comment.key ?? JSON.stringify([comment.file, comment.line, comment.text]);
+}
+
+/**
+ * A new key for a comment or a follow-up: eight characters, the same shape
+ * the server mints. Minted here rather than on save so that a comment has its
+ * identity from the moment it exists -- an agent may answer it before this
+ * tab has saved anything else.
+ */
+function mintKey() {
+  const bytes = new Uint8Array(6);
+  crypto.getRandomValues(bytes);
+  return btoa(String.fromCharCode(...bytes)).replace(/\+/g, '-').replace(/\//g, '_').replace(/=+$/, '');
+}
+
+/** The identity a follow-up is merged by. Mirrors `followUpIdentity` in lib/threads.js. */
+function followUpIdentity(followUp) {
+  return followUp.key ?? JSON.stringify([followUp.timestamp ?? null, followUp.text, followUp.by ?? null]);
+}
+
+/**
+ * Every follow-up in either list, once. Mirrors `unionFollowUps` in
+ * lib/threads.js: follow-ups are only ever added, so one present on either
+ * side is one somebody wrote, and a union is the merge that cannot lose an
+ * answer. `ours` keeps its order; the rest are placed by timestamp.
+ */
+function unionFollowUps(ours = [], theirs = []) {
+  const merged = [...ours];
+  const seen = new Set(ours.map(followUpIdentity));
+  for (const followUp of theirs) {
+    const identity = followUpIdentity(followUp);
+    if (seen.has(identity)) continue;
+    seen.add(identity);
+    const at = followUp.timestamp ?? '';
+    let index = merged.length;
+    if (at) {
+      while (index > 0 && (merged[index - 1].timestamp ?? '') > at) index--;
+    }
+    merged.splice(index, 0, followUp);
+  }
+  return merged;
 }
 
 /** Reduce a live comment to the shape that gets persisted, for `commentsBase`. */
 function toPersistedComment(comment) {
   const persisted = {
+    ...(comment.key ? { key: comment.key } : {}),
     file: comment.file,
     line: comment.line,
     lineContent: comment.lineContent,
@@ -45,9 +90,13 @@ function toPersistedComment(comment) {
  * the base arrived; a base comment missing on either side was deleted on
  * that side and stays deleted, unless the other side changed it (a new
  * follow-up is a change, and losing it would be the bug again); a local
- * comment missing from the base is new and is kept. Where both sides hold
- * a comment, the local copy wins, so a follow-up added here is not undone
- * by the merge.
+ * comment missing from the base is new and is kept.
+ *
+ * Where both sides hold a comment, one this tab has not touched since the
+ * base is taken as it now stands -- that is how an agent's answer, or an edit
+ * made in another tab, arrives. One changed here as well keeps this tab's
+ * text, and the follow-ups of both sides, so neither a follow-up added here
+ * nor an answer added there is undone.
  */
 function mergeCommentsForRetry(localComments, baseComments, remoteComments) {
   const localByKey = new Map(localComments.map(comment => [commentKey(comment), comment]));
@@ -57,6 +106,7 @@ function mergeCommentsForRetry(localComments, baseComments, remoteComments) {
     baseComments.filter(comment => !localByKey.has(commentKey(comment))).map(commentKey)
   );
   const changedLocally = key =>
+    !baseByKey.has(key) ||
     JSON.stringify(toPersistedComment(localByKey.get(key))) !==
     JSON.stringify(toPersistedComment(baseByKey.get(key)));
 
@@ -65,7 +115,20 @@ function mergeCommentsForRetry(localComments, baseComments, remoteComments) {
   for (const remote of remoteComments) {
     const key = commentKey(remote);
     if (removedLocally.has(key) || seen.has(key)) continue;
-    merged.push(localByKey.get(key) ?? { ...remote, diffLineIndex: null, matchType: remote.matchType || 'exact' });
+    const local = localByKey.get(key);
+    if (!local) {
+      merged.push({ ...remote, diffLineIndex: null, matchType: remote.matchType || 'exact' });
+    } else if (changedLocally(key)) {
+      merged.push({ ...local, followUps: unionFollowUps(local.followUps, remote.followUps) });
+    } else {
+      // Where this tab drew it stays; what it says comes from the remote.
+      merged.push({
+        ...remote,
+        diffLineIndex: local.diffLineIndex,
+        matchType: local.matchType,
+        newLineContent: local.newLineContent
+      });
+    }
     seen.add(key);
   }
   for (const local of localComments) {
@@ -91,23 +154,20 @@ async function saveCommentsToBackend() {
   // again, now based on the merged state.
   for (let attempt = 0; attempt < 3; attempt++) {
     try {
+      const sent = comments.map(toPersistedComment);
       const response = await fetch(`${API_BASE}/save-comments`, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({
           repoId: currentRepoId,
-          comments: comments, // Send empty array if no comments
+          comments: sent, // Send empty array if no comments
           lastUpdated: commentsLastUpdated
         })
       });
 
       if (response.status === 409) {
         const data = await response.json().catch(() => ({}));
-        const remoteComments = Array.isArray(data.comments) ? data.comments : [];
-        comments = mergeCommentsForRetry(comments, commentsBase, remoteComments);
-        commentsBase = remoteComments;
-        commentsLastUpdated = data.lastUpdated ?? null;
-        updateCommentsSidebar();
+        adoptRemoteComments(Array.isArray(data.comments) ? data.comments : [], data.lastUpdated ?? null);
         continue;
       }
 
@@ -117,8 +177,15 @@ async function saveCommentsToBackend() {
       }
 
       const data = await response.json().catch(() => ({}));
-      if (data.lastUpdated) commentsLastUpdated = data.lastUpdated;
-      commentsBase = comments.map(toPersistedComment);
+      if (Array.isArray(data.comments)) {
+        // What was written, which can hold more than what was sent: the
+        // server keeps every follow-up already on disk, and an agent may have
+        // answered in a thread this tab had not heard about yet.
+        adoptRemoteComments(data.comments, data.lastUpdated ?? commentsLastUpdated, sent);
+      } else {
+        if (data.lastUpdated) commentsLastUpdated = data.lastUpdated;
+        commentsBase = sent;
+      }
       return;
     } catch (error) {
       console.error('Failed to save comments:', error);
@@ -160,18 +227,60 @@ async function refreshCommentsFromElsewhere() {
 
   const lastUpdated = data.lastUpdated ?? null;
   if (lastUpdated !== commentsLastUpdated) {
-    const remoteComments = Array.isArray(data.comments) ? data.comments : [];
-    comments = mergeCommentsForRetry(comments, commentsBase, remoteComments);
-    commentsBase = remoteComments;
-    commentsLastUpdated = lastUpdated;
+    adoptRemoteComments(Array.isArray(data.comments) ? data.comments : [], lastUpdated);
+  } else {
+    redrawCommentsPane();
+  }
+}
+
+/**
+ * Bring this tab up to date with comments as they stand on the server.
+ *
+ * Shared by a refused save, a save's reply, the live feed and a tab coming
+ * back into view: each is a list from the server and the base it should be
+ * merged against. The sidebar is redrawn at once; the code pane as soon as
+ * nobody is typing in it.
+ *
+ * @param {object[]} remoteComments
+ * @param {string|null} lastUpdated
+ * @param {object[]} [base] what this tab last knew the server to hold
+ */
+function adoptRemoteComments(remoteComments, lastUpdated, base = commentsBase) {
+  const before = JSON.stringify(comments.map(toPersistedComment));
+  comments = mergeCommentsForRetry(comments, base, remoteComments);
+  commentsBase = remoteComments;
+  commentsLastUpdated = lastUpdated;
+  for (const comment of comments) {
+    // An answer has landed; the words that were streaming in are now in the thread.
+    if (agentState.partials[comment.key] && lastAuthorOf(comment)) delete agentState.partials[comment.key];
+  }
+  if (JSON.stringify(comments.map(toPersistedComment)) !== before) {
     updateCommentsSidebar();
     commentsPaneStale = true;
   }
+  redrawCommentsPane();
+}
 
+/**
+ * Redraw the open file's comments from `comments`, if they have changed and
+ * nobody is typing into a box the redraw would throw away. Uses the diff
+ * already on screen rather than fetching it again, and keeps the scroll
+ * position, so an answer arriving does not move what is being read.
+ */
+function redrawCommentsPane() {
   const typing = document.querySelector('.comment-input-box, .followup-input-box');
-  if (commentsPaneStale && currentFile && !typing) {
-    loadFile(currentFile, currentFiles.findIndex(f => f.path === currentFile));
+  if (!commentsPaneStale || !currentFile || typing) return;
+  if (isFullContextMode && storedFullFileLines) {
+    displayFullContext(currentFile, storedFullFileLines);
+    commentsPaneStale = false;
+    return;
   }
+  if (!currentDiffLines.length) return;
+  const viewer = document.getElementById('codeViewer');
+  const scrollTop = viewer.scrollTop;
+  matchCommentsToFile(currentFile, currentDiffLines);
+  displayCode(currentFile, currentDiffLines, false);
+  viewer.scrollTop = scrollTop;
 }
 
 // Load comments from backend
@@ -1028,6 +1137,10 @@ async function loadRepo(scope = {}) {
       showStatus(`Picked up ${plural(savedComments.length, 'saved comment')} from last time.`, 'success');
     }
 
+    // From here on, comments written anywhere else -- another tab, an agent
+    // answering in a thread -- arrive as they are written.
+    openReviewEvents(currentRepoId);
+
     // Open something. A loaded repository used to sit behind an empty pane
     // until a file was clicked, which reads as a failure rather than as a
     // result (#47). Done here rather than in `displayFiles` because the saved
@@ -1212,45 +1325,7 @@ async function loadFile(filePath, index) {
     //
     // `comments` is what exists. A comment that is not in it does not exist.
     if (comments.length > 0) {
-      const matchedComments = matchCommentsToDiff(comments, filePath, data.diffLines);
-
-      // Update existing comments in the array with matched diff indices
-      matchedComments.forEach(mc => {
-        const existing = comments.find(c =>
-          c.file === mc.file &&
-          c.line === mc.line &&
-          c.text === mc.text
-        );
-
-        if (existing) {
-          // Update existing comment with new diff line index and match type
-          existing.diffLineIndex = mc.diffLineIndex;
-          existing.matchType = mc.matchType;
-          existing.newLineContent = mc.newLineContent;
-          // Preserve followUps from saved data
-          if (mc.followUps) {
-            existing.followUps = mc.followUps;
-          }
-        } else {
-          // Unreachable now that the matcher is fed the live list: everything
-          // it returns came from there. Kept as a guard rather than removed,
-          // because silently dropping a comment is the worse failure of the
-          // two, and this is the line that would do it.
-          // Add new comment if it doesn't exist
-          comments.push({
-            file: mc.file,
-            diffLineIndex: mc.diffLineIndex,
-            line: mc.line,
-            lineContent: mc.lineContent,
-            selectedText: mc.selectedText,
-            text: mc.text,
-            matchType: mc.matchType,
-            newLineContent: mc.newLineContent,
-            followUps: mc.followUps || []
-          });
-        }
-      });
-
+      matchCommentsToFile(filePath, data.diffLines);
       // Update comments sidebar after matching comments
       updateCommentsSidebar();
     }
@@ -1264,6 +1339,35 @@ async function loadFile(filePath, index) {
     showStatus(`Error loading file: ${error.message}`, 'error');
     return Promise.reject(error);
   }
+}
+
+/**
+ * Give this file's comments their position in the diff on screen.
+ *
+ * Comments are found by key, not by file, line and text: two identical
+ * comments on one line are two comments, and an edited one is still itself.
+ *
+ * @param {string} filePath
+ * @param {object[]} diffLines
+ */
+function matchCommentsToFile(filePath, diffLines) {
+  const matchedComments = matchCommentsToDiff(comments, filePath, diffLines);
+
+  matchedComments.forEach(mc => {
+    const existing = comments.find(c => commentKey(c) === commentKey(mc));
+
+    if (existing) {
+      existing.diffLineIndex = mc.diffLineIndex;
+      existing.matchType = mc.matchType;
+      existing.newLineContent = mc.newLineContent;
+    } else {
+      // Unreachable now that the matcher is fed the live list: everything
+      // it returns came from there. Kept as a guard rather than removed,
+      // because silently dropping a comment is the worse failure of the
+      // two, and this is the line that would do it.
+      comments.push({ ...mc, followUps: mc.followUps || [] });
+    }
+  });
 }
 
 // Display code with diff highlighting
@@ -1331,24 +1435,10 @@ function displayCode(filePath, diffLines, binary) {
         </div>
       ` : '';
 
-      // Generate follow-ups HTML
-      let followUpsHtml = '';
-      if (hasComment.followUps && hasComment.followUps.length > 0) {
-        followUpsHtml = '<div class="comment-followups">';
-        hasComment.followUps.forEach((followUp, idx) => {
-          const timestamp = followUp.timestamp ? new Date(followUp.timestamp).toLocaleString() : '';
-          followUpsHtml += `
-            <div class="comment-followup-item">
-              <span class="followup-text">${escapeHtml(followUp.text)}</span>
-              ${timestamp ? `<span class="followup-timestamp">${timestamp}</span>` : ''}
-            </div>
-          `;
-        });
-        followUpsHtml += '</div>';
-      }
+      const followUpsHtml = threadHtml(hasComment);
 
       html += `
-        <div class="comment-box ${matchTypeClass}">
+        <div class="comment-box ${matchTypeClass}" data-key="${escapeHtml(commentKey(hasComment))}">
           ${fuzzyWarning}
           <span class="comment-text">${escapeHtml(hasComment.text)}</span>
           ${followUpsHtml}
@@ -1368,21 +1458,7 @@ function displayCode(filePath, diffLines, binary) {
   if (unmatchedComments.length > 0) {
     html += '<div class="unmatched-comments-section">';
     unmatchedComments.forEach((comment, unmatchedIndex) => {
-      // Generate follow-ups for unmatched comments
-      let unmatchedFollowUpsHtml = '';
-      if (comment.followUps && comment.followUps.length > 0) {
-        unmatchedFollowUpsHtml = '<div class="comment-followups">';
-        comment.followUps.forEach((followUp, idx) => {
-          const timestamp = followUp.timestamp ? new Date(followUp.timestamp).toLocaleString() : '';
-          unmatchedFollowUpsHtml += `
-            <div class="comment-followup-item">
-              <span class="followup-text">${escapeHtml(followUp.text)}</span>
-              ${timestamp ? `<span class="followup-timestamp">${timestamp}</span>` : ''}
-            </div>
-          `;
-        });
-        unmatchedFollowUpsHtml += '</div>';
-      }
+      const unmatchedFollowUpsHtml = threadHtml(comment);
 
       // Every control in here used to carry the comment's file name and text,
       // quoted into an attribute that is evaluated as JavaScript -- with `'`
@@ -1392,7 +1468,7 @@ function displayCode(filePath, diffLines, binary) {
       // rendered from. The row's random id went with it: the position is the
       // identifier now.
       html += `
-        <div class="unmatched-comment-item collapsed" tabindex="0">
+        <div class="unmatched-comment-item collapsed" tabindex="0" data-key="${escapeHtml(commentKey(comment))}">
           <div class="unmatched-comment-header" onclick="toggleUnmatchedComment(${Number(unmatchedIndex)})">
             <span class="unmatched-comment-icon">⚠️</span>
             <span class="unmatched-comment-title">Comment not found (Line ${comment.line} changed)</span>
@@ -1556,6 +1632,7 @@ function saveFollowUp(diffLineIndex) {
   }
 
   comment.followUps.push({
+    key: mintKey(),
     text: text,
     timestamp: new Date().toISOString()
   });
@@ -1658,6 +1735,7 @@ function saveFollowUpToUnmatched(index) {
   }
 
   comment.followUps.push({
+    key: mintKey(),
     text: followUpText,
     timestamp: new Date().toISOString()
   });
@@ -1840,6 +1918,17 @@ function toggleCommentInputWithSelection(diffLineIndex, selectedText = null) {
   });
 }
 
+/**
+ * The comment being edited, while its box is open.
+ *
+ * Editing takes a comment out of the list and saving puts a new one back.
+ * The new one used to start with an empty thread, so editing a comment that
+ * had replies deleted every one of them -- and now that replies include an
+ * agent's answers, that is the answers gone. Holding on to the original is
+ * how the edited comment keeps its key and its thread.
+ */
+let commentBeingEdited = null;
+
 // Save comment
 function saveComment(diffLineIndex, selectedText = null) {
   const input = document.getElementById('commentInput');
@@ -1857,7 +1946,11 @@ function saveComment(diffLineIndex, selectedText = null) {
   const lineContent = diffLine.content || '';
   const lineNum = diffLine.newLine || diffLine.oldLine;
 
+  const edited = commentBeingEdited?.file === currentFile ? commentBeingEdited : null;
+  commentBeingEdited = null;
+
   comments.push({
+    key: edited?.key ?? mintKey(),
     file: currentFile,
     diffLineIndex: diffLineIndex,
     line: lineNum,
@@ -1865,7 +1958,7 @@ function saveComment(diffLineIndex, selectedText = null) {
     selectedText: selectedText,
     text: text,
     matchType: 'exact', // New comments are exact matches
-    followUps: [] // Initialize empty follow-ups array
+    followUps: edited?.followUps ?? []
   });
 
   // Auto-save to backend
@@ -1893,6 +1986,7 @@ function editComment(diffLineIndex) {
 
   // Remove the comment from the list temporarily
   comments = comments.filter(c => !(c.file === currentFile && c.diffLineIndex === diffLineIndex));
+  commentBeingEdited = comment;
 
   // Reload file and show edit input
   const fileIndex = currentFiles.findIndex(f => f.path === currentFile);
@@ -1916,7 +2010,7 @@ function editComment(diffLineIndex) {
       <textarea placeholder="Enter your comment (Cmd/Ctrl+Enter to save)..." id="commentInput">${escapeHtml(comment.text)}</textarea>
       <div class="actions">
         <button${selectedTextData(selectedText)} onclick="saveComment(${Number(diffLineIndex)}, this.dataset.selectedText ?? null)">Save Comment</button>
-        <button class="cancel-btn" onclick="this.closest('.comment-input-box').remove()">Cancel</button>
+        <button class="cancel-btn" onclick="cancelEdit()">Cancel</button>
       </div>
     `;
 
@@ -1942,14 +2036,27 @@ function editComment(diffLineIndex) {
       }
       if (e.key === 'Escape') {
         e.preventDefault();
-        inputBox.remove();
-        // Restore the comment if canceled
-        comments.push(comment);
-        const fileIndex = currentFiles.findIndex(f => f.path === currentFile);
-        loadFile(currentFile, fileIndex);
+        cancelEdit();
       }
     });
   });
+}
+
+/**
+ * Put back the comment whose edit was abandoned.
+ *
+ * Escape always did this; the Cancel button only closed the box, which left
+ * the comment out of the list -- and the next save, from any edit at all,
+ * deleted it from the review.
+ */
+function cancelEdit() {
+  document.querySelector('.comment-input-box')?.remove();
+  if (commentBeingEdited) {
+    comments.push(commentBeingEdited);
+    commentBeingEdited = null;
+  }
+  const fileIndex = currentFiles.findIndex(f => f.path === currentFile);
+  loadFile(currentFile, fileIndex);
 }
 
 // Delete comment
@@ -2100,6 +2207,7 @@ async function cleanupRepo() {
 
 // Reset application
 function resetApp() {
+  closeReviewEvents();
   currentRepoId = null;
   currentFiles = [];
   currentFile = null;
@@ -2461,6 +2569,14 @@ function updateCommentsSidebar() {
         const elsewhereHtml = elsewhere
           ? '<div class="comment-item-elsewhere-note">Not in this view</div>'
           : '';
+        const replies = (comment.followUps ?? []).length;
+        const answering = threadsBeingAnswered().has(commentKey(comment)) || agentState.partials[commentKey(comment)];
+        const answeredBy = lastAuthorOf(comment);
+        const threadNote = answering
+          ? '<div class="comment-item-thread comment-item-answering">Claude is answering…</div>'
+          : replies > 0
+            ? `<div class="comment-item-thread">${replies} ${replies === 1 ? 'reply' : 'replies'}${answeredBy ? ` · answered by ${escapeHtml(authorName(answeredBy))}` : ''}</div>`
+            : '';
         html += `
           <div class="comment-item${elsewhere ? ' comment-item-elsewhere' : ''}">
             <button class="comment-item-delete" onclick="event.stopPropagation(); deleteCommentFromSidebar(${Number(commentIndex)})" title="Delete comment">×</button>
@@ -2469,6 +2585,7 @@ function updateCommentsSidebar() {
               <div class="comment-item-line">Line ${comment.line}</div>
               <div class="comment-item-text">${escapeHtml(comment.text)}</div>
               ${selectedHtml}
+              ${threadNote}
               ${elsewhereHtml}
             </div>
           </div>
@@ -2632,6 +2749,339 @@ function getKeyboardShortcut(key, targetTagName, modifiers = {}) {
   };
 
   return map[key] || null;
+}
+
+/*
+ * Agents answering in the review's threads.
+ *
+ * A Claude Code session can be connected to the review -- in the background,
+ * from the dialog below, or live from a terminal with `reviewer connect` --
+ * and answers every comment and reply the reviewer writes, in the thread.
+ * The answers arrive through the same comments file everything else does;
+ * what the page adds is showing who is connected, which threads are being
+ * answered, and an answer's words as they are written.
+ */
+
+/**
+ * @type {{agents: object[], answerer: object|null, partials: Object<string, string>, events: EventSource|null, sessions: object[]|null}}
+ *   `agents` are the presences the server reports (live, background or
+ *   watching); `answerer` is a background session this server runs;
+ *   `partials` holds answers still being written, by comment key.
+ */
+const agentState = { agents: [], answerer: null, partials: {}, events: null, sessions: null };
+
+/** The display name for whoever wrote a follow-up. */
+function authorName(by) {
+  return by === 'claude' ? 'Claude' : by;
+}
+
+/** Who wrote the last word in a thread: null for the reviewer. Mirrors lib/threads.js. */
+function lastAuthorOf(comment) {
+  const followUps = comment.followUps ?? [];
+  return followUps.length === 0 ? null : (followUps[followUps.length - 1].by ?? null);
+}
+
+/** Keys of the threads some agent is answering right now. */
+function threadsBeingAnswered() {
+  const keys = new Set();
+  for (const agent of agentState.agents) (agent.working ?? []).forEach(key => keys.add(key));
+  if (agentState.answerer?.working) keys.add(agentState.answerer.working);
+  return keys;
+}
+
+/** Whether anything is connected to answer at all. */
+function agentConnected() {
+  return agentState.agents.length > 0 || Boolean(agentState.answerer);
+}
+
+/**
+ * A little Markdown, for answers: fenced code, inline code and bold. The text
+ * is escaped first and only these three patterns are turned back into
+ * markup, so nothing in an answer can become anything else on the page.
+ */
+function renderMarkdown(text) {
+  const blocks = String(text ?? '').split(/^```[^\n]*\n?/m);
+  return blocks.map((block, index) => {
+    if (index % 2 === 1) return `<pre class="followup-code"><code>${escapeHtml(block.replace(/\n$/, ''))}</code></pre>`;
+    return escapeHtml(block)
+      .replace(/`([^`\n]+)`/g, '<code>$1</code>')
+      .replace(/\*\*([^*\n]+)\*\*/g, '<strong>$1</strong>');
+  }).join('');
+}
+
+/** One follow-up in a thread. */
+function followUpHtml(followUp) {
+  const timestamp = followUp.timestamp ? new Date(followUp.timestamp).toLocaleString() : '';
+  if (followUp.by) {
+    return `
+      <div class="comment-followup-item followup-agent">
+        <span class="followup-author">${escapeHtml(authorName(followUp.by))}</span>
+        <div class="followup-text followup-markdown">${renderMarkdown(followUp.text)}</div>
+        ${timestamp ? `<span class="followup-timestamp">${timestamp}</span>` : ''}
+      </div>
+    `;
+  }
+  return `
+    <div class="comment-followup-item">
+      <span class="followup-text">${escapeHtml(followUp.text)}</span>
+      ${timestamp ? `<span class="followup-timestamp">${timestamp}</span>` : ''}
+    </div>
+  `;
+}
+
+/** The answer being written in a thread, or a note that one is coming. */
+function pendingAnswerHtml(comment) {
+  const key = commentKey(comment);
+  const partial = agentState.partials[key];
+  if (threadsBeingAnswered().has(key) || partial) {
+    return `
+      <div class="comment-followup-item followup-agent followup-pending" data-pending-key="${escapeHtml(key)}">
+        <span class="followup-author">Claude</span>
+        <div class="followup-text followup-markdown">${partial ? renderMarkdown(partial) : '<span class="agent-typing">answering…</span>'}</div>
+      </div>
+    `;
+  }
+  if (agentConnected() && lastAuthorOf(comment) === null) {
+    return '<div class="followup-queued">Waiting for Claude to answer</div>';
+  }
+  return '';
+}
+
+/** A comment's follow-ups, and whatever answer is on its way. */
+function threadHtml(comment) {
+  const items = (comment.followUps ?? []).map(followUpHtml).join('');
+  const pending = pendingAnswerHtml(comment);
+  if (!items && !pending) return '';
+  return `<div class="comment-followups">${items}${pending}</div>`;
+}
+
+/**
+ * Put an answer's latest words on screen without redrawing the pane: the
+ * pane may hold a box someone is typing in, and a partial arrives many times
+ * a second.
+ */
+function showPartialAnswer(key) {
+  const box = document.querySelector(`.comment-box[data-key="${CSS.escape(key)}"], .unmatched-comment-item[data-key="${CSS.escape(key)}"]`);
+  if (!box) return;
+  const comment = comments.find(c => commentKey(c) === key);
+  if (!comment) return;
+  const pending = box.querySelector('.followup-pending .followup-text');
+  if (pending) {
+    pending.innerHTML = renderMarkdown(agentState.partials[key]);
+    return;
+  }
+  const thread = box.querySelector('.comment-followups');
+  const html = threadHtml(comment);
+  if (thread) thread.outerHTML = html;
+  else box.querySelector('.comment-text')?.insertAdjacentHTML('afterend', html);
+}
+
+/** Redraw every thread's pending state after who-is-answering-what changed. */
+function refreshPendingAnswers() {
+  renderAgentButton();
+  updateCommentsSidebar();
+  commentsPaneStale = true;
+  redrawCommentsPane();
+}
+
+/** The header button: whether anything is answering, and what it is doing. */
+function renderAgentButton() {
+  const button = document.getElementById('agentButton');
+  const label = document.getElementById('agentButtonLabel');
+  if (!button || !label) return;
+  button.classList.toggle('hidden', !currentRepoId);
+
+  const working = threadsBeingAnswered().size;
+  const live = agentState.agents.find(agent => agent.kind === 'channel');
+  const connected = agentConnected();
+  button.classList.toggle('connected', connected);
+  button.classList.toggle('working', working > 0);
+  if (!connected) {
+    label.textContent = 'Ask Claude Code';
+    button.title = 'Have the Claude Code session that wrote this code answer your comments';
+  } else {
+    label.textContent = working > 0 ? 'Claude is answering…' : 'Claude Code connected';
+    const title = live?.title ?? agentState.answerer?.title ?? agentState.agents[0]?.title;
+    const how = live ? 'Live, from your terminal'
+      : agentState.answerer ? 'In the background'
+        : 'Following the review from an agent session';
+    button.title = `${how}${title ? `: ${title}` : ''}`;
+  }
+}
+
+/** Follow the open review's live feed. One per tab, replaced with the repository. */
+function openReviewEvents(repoId) {
+  closeReviewEvents();
+  if (typeof EventSource === 'undefined') return;
+  const events = new EventSource(`${API_BASE}/events/${repoId}`);
+  agentState.events = events;
+
+  const parse = event => {
+    try {
+      return JSON.parse(event.data);
+    } catch {
+      return null;
+    }
+  };
+
+  events.addEventListener('comments', event => {
+    const data = parse(event);
+    if (!data || currentRepoId !== repoId) return;
+    if ((data.lastUpdated ?? null) === commentsLastUpdated) return;
+    adoptRemoteComments(Array.isArray(data.comments) ? data.comments : [], data.lastUpdated ?? null);
+  });
+  events.addEventListener('agents', event => {
+    const data = parse(event);
+    if (!data || currentRepoId !== repoId) return;
+    agentState.agents = Array.isArray(data.agents) ? data.agents : [];
+    refreshPendingAnswers();
+  });
+  events.addEventListener('answerer', event => {
+    if (currentRepoId !== repoId) return;
+    agentState.answerer = parse(event);
+    refreshPendingAnswers();
+  });
+  events.addEventListener('partial', event => {
+    const data = parse(event);
+    if (!data || currentRepoId !== repoId || !data.key) return;
+    agentState.partials[data.key] = data.text;
+    showPartialAnswer(data.key);
+  });
+  events.addEventListener('agent-error', event => {
+    const data = parse(event);
+    if (!data || currentRepoId !== repoId) return;
+    if (data.key) delete agentState.partials[data.key];
+    showStatus(`Claude Code: ${data.message}`, 'error');
+    refreshPendingAnswers();
+  });
+}
+
+function closeReviewEvents() {
+  agentState.events?.close();
+  agentState.events = null;
+  agentState.agents = [];
+  agentState.answerer = null;
+  agentState.partials = {};
+  renderAgentButton();
+}
+
+/** How long ago, briefly. */
+function sinceText(iso) {
+  return timeAgo(iso) || new Date(iso).toLocaleString();
+}
+
+async function openAgentDialog() {
+  if (!currentRepoId) return;
+  document.getElementById('agentModal').classList.remove('hidden');
+  const list = document.getElementById('agentSessions');
+  list.innerHTML = '<p class="agent-empty">Looking for Claude Code sessions…</p>';
+  renderAgentConnection();
+
+  try {
+    const response = await fetch(`${API_BASE}/agent/sessions/${currentRepoId}`);
+    const data = await response.json();
+    if (!response.ok) throw new Error(data.error || 'Could not list sessions');
+    agentState.sessions = data.sessions;
+    renderAgentSessions();
+  } catch (error) {
+    list.innerHTML = `<p class="agent-empty">${escapeHtml(error.message)}</p>`;
+  }
+}
+
+function closeAgentDialog() {
+  document.getElementById('agentModal').classList.add('hidden');
+}
+
+/** What is connected now, with a way to stop the background session. */
+function renderAgentConnection() {
+  const box = document.getElementById('agentConnected');
+  const parts = [];
+  for (const agent of agentState.agents.filter(a => a.kind !== 'background')) {
+    parts.push(`<div class="agent-connection"><span class="agent-dot"></span>
+      <div><strong>${agent.kind === 'channel' ? 'Live in your terminal' : 'Watching from an agent'}</strong>
+      <div class="agent-connection-title">${escapeHtml(agent.title ?? (agent.session ? `session ${agent.session.slice(0, 8)}` : 'Claude Code'))}</div></div></div>`);
+  }
+  if (agentState.answerer) {
+    const a = agentState.answerer;
+    parts.push(`<div class="agent-connection"><span class="agent-dot"></span>
+      <div><strong>Answering in the background</strong>
+      <div class="agent-connection-title">${escapeHtml(a.title ?? a.session)}</div>
+      <div class="agent-connection-meta">${a.forked ? `In a copy of ${escapeHtml(a.session.slice(0, 8))}${a.answeringIn && a.answeringIn !== a.session ? ` (${escapeHtml(a.answeringIn.slice(0, 8))})` : ''}; the original is untouched.` : `In session ${escapeHtml(a.session.slice(0, 8))} itself.`}</div></div>
+      <button class="agent-disconnect" onclick="disconnectAgent()">Stop</button></div>`);
+  }
+  box.innerHTML = parts.join('');
+  box.classList.toggle('hidden', parts.length === 0);
+}
+
+function renderAgentSessions() {
+  const list = document.getElementById('agentSessions');
+  const sessions = agentState.sessions ?? [];
+  if (sessions.length === 0) {
+    list.innerHTML = '<p class="agent-empty">No Claude Code session has worked in this repository yet. ' +
+      'Sessions are found under <code>~/.claude/projects</code> by the directory they ran in.</p>';
+    return;
+  }
+  list.innerHTML = sessions.map((session, index) => {
+    const label = session.title ?? session.firstPrompt ?? '(no prompt)';
+    const copy = session.title?.startsWith('Review answers:');
+    return `
+      <div class="agent-session${copy ? ' agent-session-copy' : ''}">
+        <div class="agent-session-text">
+          <div class="agent-session-title">${escapeHtml(label)}</div>
+          <div class="agent-session-meta">${escapeHtml(session.id.slice(0, 8))}${session.branch ? ` · ${escapeHtml(session.branch)}` : ''} · ${escapeHtml(sinceText(session.updatedAt))}</div>
+        </div>
+        <div class="agent-session-actions">
+          <button class="agent-connect" onclick="connectAgent(${Number(index)})">Answer my comments</button>
+          <button class="agent-copy" onclick="copyConnectCommand(${Number(index)})" title="Copy a command that opens this session live in a terminal">Copy live command</button>
+        </div>
+      </div>
+    `;
+  }).join('');
+}
+
+async function connectAgent(index) {
+  const session = agentState.sessions?.[Number(index)];
+  if (!session || !currentRepoId) return;
+  const fork = document.getElementById('agentFork').checked;
+  try {
+    const response = await fetch(`${API_BASE}/agent/connect`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ repoId: currentRepoId, sessionId: session.id, fork })
+    });
+    const data = await response.json();
+    if (!response.ok) throw new Error(data.error || 'Could not connect');
+    agentState.answerer = data.answerer;
+    closeAgentDialog();
+    refreshPendingAnswers();
+    showStatus('Claude Code will answer your comments in their threads.', 'success');
+  } catch (error) {
+    showStatus(`Could not connect Claude Code: ${error.message}`, 'error');
+  }
+}
+
+async function disconnectAgent() {
+  if (!currentRepoId) return;
+  await fetch(`${API_BASE}/agent/disconnect`, {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ repoId: currentRepoId })
+  }).catch(() => {});
+  agentState.answerer = null;
+  renderAgentConnection();
+  refreshPendingAnswers();
+}
+
+async function copyConnectCommand(index) {
+  const session = agentState.sessions?.[Number(index)];
+  if (!session) return;
+  const command = `reviewer connect --session ${session.id}`;
+  try {
+    await navigator.clipboard.writeText(command);
+    showStatus(`Copied: ${command}`, 'success');
+  } catch {
+    showStatus(`Run this in a terminal: ${command}`, 'success');
+  }
 }
 
 // Allow Enter key to load repo

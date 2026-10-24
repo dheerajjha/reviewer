@@ -37,6 +37,36 @@ Review**. Then read the review with:
 npx -y git-reviewer@latest export . --format prompt
 ```
 
+## Answering the reviewer while they review
+
+The user may want to ask you about the code as they read it, rather than
+hand you a finished review. You are the agent that wrote it, so you can say
+why it is the way it is. Follow the review and answer in its threads:
+
+1. Run this in the background, so that you hear about every line it prints.
+   In Claude Code, use the Monitor tool:
+
+   ```bash
+   npx -y git-reviewer@latest watch
+   ```
+
+   Each line is one comment waiting for you, as JSON: its `key`, `file`,
+   `line`, the reviewer's latest message in `text`, and the whole `thread`.
+2. For each one, read the code it points at and answer:
+
+   ```bash
+   npx -y git-reviewer@latest reply <key> "<your answer>"
+   ```
+
+   The answer appears under the comment in the user's browser straight away.
+   Keep it short, explain your reasoning, and do not change files unless the
+   comment asks you to; say what you would change instead.
+3. Keep going until the user says they are done, then stop the watch.
+
+The user can also connect a session from the review page (**Ask Claude
+Code**) or with `npx git-reviewer connect` in a terminal; then the comments
+come to that session without any of this.
+
 ## Applying the review
 
 - Work through every comment, including the threaded replies under it.

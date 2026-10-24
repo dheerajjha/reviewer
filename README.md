@@ -3,7 +3,7 @@
 [![CI](https://github.com/dheerajjha/reviewer/actions/workflows/ci.yml/badge.svg)](https://github.com/dheerajjha/reviewer/actions/workflows/ci.yml)
 [![License: MIT](https://img.shields.io/badge/license-MIT-blue.svg)](LICENSE)
 [![Node](https://img.shields.io/badge/node-%3E%3D18-brightgreen.svg)](package.json)
-[![Tests](https://img.shields.io/badge/tests-425-brightgreen.svg)](test/)
+[![Tests](https://img.shields.io/badge/tests-483-brightgreen.svg)](test/)
 [![Dependencies](https://img.shields.io/badge/dependencies-3-brightgreen.svg)](package.json)
 
 **English** · [简体中文](docs/README.zh-CN.md) · [日本語](docs/README.ja.md)
@@ -47,6 +47,10 @@ watching, and the code at the end is what the agent actually wrote.*
 Nothing is installed into the project, there is nothing to sign in to, and
 nothing leaves your machine. If you would rather not install it,
 `npx git-reviewer` works the same way.
+
+You can also ask while you read. Connect the Claude Code session that wrote the
+code, and it answers each comment in its thread as you write it; see
+[Ask the session that wrote the code](#ask-the-session-that-wrote-the-code).
 
 When the review and the hand-off happen at different times, the two-step form
 still works and is the one to reach for:
@@ -345,6 +349,7 @@ rather than guess when an anchor has vanished.
   "comments": [
     {
       "id": "src/auth.js:10",
+      "key": "Xq3vB9aK",
       "file": "src/auth.js",
       "line": 10,
       "anchor": "  if (scheme !== SCHEME || !token) return null;",
@@ -384,6 +389,53 @@ comment, finding the code a comment quotes rather than trusting its line
 number. Where an agent cannot leave a command running, it asks you to start
 `git reviewer` yourself and reads the result with `git reviewer export`.
 
+## Ask the session that wrote the code
+
+The agent that wrote a change knows why it is the way it is: it read the code
+around it, weighed the alternatives and chose one. reviewer can put your
+comments to that session, and its answers appear in the thread, under the
+comment, as they are written. You review in the browser and ask as you go:
+"why throw here instead of repricing?" on one file, "which edge cases are not
+tested?" on another, and each thread gets its answer from the agent that
+wrote the code, in its own words.
+
+**From the page.** Click **Ask Claude Code**, pick the session. Claude Code
+keeps every session's transcript, and reviewer lists the ones that ran in
+this repository. From then on every comment you write, and every reply you
+add, goes to that session; threads that were already waiting go first. The
+session is resumed in the background as a copy, so the original transcript
+is left exactly as it was. The copy can read the repository and nothing else:
+no edits, no shell, none of your MCP servers.
+
+**Live, in your terminal.** To have the session itself answer, the one you
+can watch and step into, connect it:
+
+```bash
+git reviewer connect                 # the most recent session that worked here
+git reviewer connect --list          # choose one
+git reviewer connect --session 9fef2341
+```
+
+This resumes the session with reviewer attached as a Claude Code
+[channel](https://code.claude.com/docs/en/channels). Every comment arrives in
+the session as it is written, and it answers in the thread with the `reply`
+tool, with your own permissions. Channels are a research preview, so Claude
+Code asks you to confirm the development channel when it starts.
+
+**Any agent.** Two commands are the whole protocol, so anything that can run a
+command can take part:
+
+```bash
+git reviewer watch              # one JSON line per comment waiting for an answer
+git reviewer reply <key> "Because the spec says inclusive."
+```
+
+Every comment has a stable `key`. It is in the export, and in each line `watch`
+prints. Answers are stored as follow-ups with a `by` field naming who wrote
+them, so an agent's reply is never mistaken for your own note. They export
+labelled as such too, so a review handed over afterwards carries the whole
+conversation.
+
 ## HTTP API
 
 The UI is a client of this; nothing is hidden from you.
@@ -401,6 +453,10 @@ The UI is a client of this; nothing is hidden from you.
 | `POST /api/save-comments` | Persist the current comments. Send back the `lastUpdated` you loaded and the save is conditional: if the file has moved on since, it answers `409` with the current `comments` and `lastUpdated` instead of overwriting them |
 | `GET /api/load-comments/:repoId` | Restore saved comments, with `lastUpdated`, the version token a conditional save sends back |
 | `POST /api/submit-review` | Render the saved comments to a review file |
+| `GET /api/events/:repoId` | Server-sent events for an open review: `comments` whenever the saved comments change, whoever changed them; `agents` as agents connect, leave or start on a thread; `partial` with an answer still being written |
+| `GET /api/agent/sessions/:repoId` | The Claude Code sessions that ran in this repository, newest first |
+| `POST /api/agent/connect` | `{repoId, sessionId, fork}`: have that session answer the review's comments in the background. `fork` defaults to `true`, a copy of the session |
+| `POST /api/agent/disconnect` | `{repoId}`: stop the background session |
 | `DELETE /api/cleanup/:repoId` | End the session; files on disk are untouched |
 
 ### POST request bodies
@@ -435,7 +491,7 @@ they have no file diff.
 }
 ```
 
-Each comment requires `file` (non-empty string), `line` (positive integer), and `text` (non-empty string). `lineContent`, `selectedText`, and `followUps` are optional.
+Each comment requires `file` (non-empty string), `line` (positive integer), and `text` (non-empty string). `lineContent`, `selectedText`, `followUps` and `key` are optional. A comment sent without a `key` gets one derived from its content, so the same list posted twice keeps its identities. Follow-ups take `key`, `timestamp`, and `by` for a reply from someone other than the reviewer. Follow-ups already saved for a comment are kept even when a save leaves them out, so a stale save cannot erase an agent's answer.
 
 Add `"lastUpdated"` with the value `load-comments` returned (`null` for a review
 not saved yet) to make the save conditional, as the page does. Without it the
@@ -471,7 +527,7 @@ rather than a public issue.
 
 ```bash
 npm install           # 3 dependencies, no build step, ~6MB
-npm test              # 425 tests
+npm test              # 483 tests
 npm run test:watch
 npm run test:coverage
 ```

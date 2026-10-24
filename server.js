@@ -14,14 +14,21 @@ const {
 } = require('./lib/paths');
 const { collectWorkingTreeChanges, describeWorkingChanges, collectStagedChanges, collectCommitChanges, parseNameStatus } = require('./lib/changes');
 const { SessionStore } = require('./lib/sessions');
-const { normalizeComments } = require('./lib/comments');
+const { normalizeComments, withKeys } = require('./lib/comments');
+const { keepFollowUpsFrom } = require('./lib/threads');
 const { formatReview, reviewFilename, commentsFilename } = require('./lib/review');
 const { buildReviewDocument, describeScope } = require('./lib/agent');
-const { readSavedComments, ReviewOwnershipError } = require('./lib/store');
+const { readSavedComments, updateSavedComments, ReviewOwnershipError } = require('./lib/store');
 const { repoRoot } = require('./lib/repo');
 const { browse } = require('./lib/browse');
 const { recordRecent, describeRecents } = require('./lib/recents');
 const { listReviews } = require('./lib/export');
+const { EventEmitter } = require('events');
+const { watchComments } = require('./lib/watch');
+const { watchAgents } = require('./lib/presence');
+const { listClaudeSessions, findClaudeSession } = require('./lib/claude-sessions');
+const { BackgroundSession } = require('./lib/claude-background');
+const { Answerer } = require('./lib/answerer');
 
 const DEFAULT_PORT = 4500;
 const DEFAULT_HOST = '127.0.0.1';
@@ -61,19 +68,12 @@ function loopbackHostOnly(req, res, next) {
 
 
 /**
- * The `lastUpdated` stamp for a save that follows `previous`.
+ * An agent's presence record, as the page is told about it.
  *
- * Stamps are the version token for conditional saves (#107), so a new stamp
- * must differ from the one it replaces even when two saves land inside the
- * same millisecond -- otherwise a stale tab would look current by accident.
- *
- * @param {string|null} previous stamp currently on disk, if any
- * @returns {string} ISO 8601 stamp strictly after `previous`
+ * @param {import('./lib/presence').AgentPresence} agent
  */
-function nextLastUpdated(previous) {
-  const parsed = previous ? Date.parse(previous) : NaN;
-  const stamp = Number.isNaN(parsed) ? Date.now() : Math.max(Date.now(), parsed + 1);
-  return new Date(stamp).toISOString();
+function describeAgent({ id, kind, agent, session, title, startedAt, working }) {
+  return { id, kind, agent, session, title, startedAt, working };
 }
 
 /** A path inside the repository that names nothing, on disk or at HEAD. */
@@ -111,6 +111,10 @@ class FileNotFoundError extends Error {
  *   leaves before deciding it is not coming back.
  * @param {boolean} [options.loopbackOnly] refuse any request whose `Host` is
  *   not a loopback name. `startServer` turns it on when it binds to loopback.
+ * @param {object} [options.claude] how Claude Code is found and run, for
+ *   answering comments from a session: `command` (default `claude`, or
+ *   `REVIEWER_CLAUDE`), `configDir` (where its sessions are kept) and
+ *   `spawn`, all injectable for tests.
  * @returns {import('express').Express}
  */
 // How far back the range picker offers to go. Long enough to cover the work
@@ -138,8 +142,10 @@ function createApp(options = {}) {
     handoff = false,
     onIdle = null,
     idleGraceMs = 5000,
-    loopbackOnly = false
+    loopbackOnly = false,
+    claude = {}
   } = options;
+  const claudeCommand = claude.command ?? process.env.REVIEWER_CLAUDE ?? 'claude';
 
   const app = express();
 
@@ -152,38 +158,25 @@ function createApp(options = {}) {
   app.locals.sessions = sessions;
   app.locals.reviewsDir = reviewsDir;
 
+  // Background Claude Code sessions answering comments, one per repository
+  // at most, and the feed their answers-in-progress go out on. An answer is
+  // only written to the review once it is finished; until then the words
+  // arriving are sent to the page directly, not written to disk word by word.
+  /** @type {Map<string, Answerer>} */
+  const answerers = new Map();
+  const live = new EventEmitter();
+  live.setMaxListeners(0);
+
+  app.locals.stopAgents = async () => {
+    const running = [...answerers.values()];
+    answerers.clear();
+    await Promise.all(running.map(answerer => answerer.stop()));
+  };
+
   // How many tabs are currently holding `/api/alive` open, and the timer that
   // starts when that reaches zero. See the route for why it is a timer.
   let watching = 0;
   let idleTimer = null;
-
-  // Saves to one comments file are serialized through here. The conditional
-  // check in /api/save-comments is read-then-write; two saves racing across
-  // the awaits could both pass it and still overwrite each other (#107).
-  /** @type {Map<string, Promise<void>>} */
-  const saveQueues = new Map();
-
-  /**
-   * Run `task` after any save already queued for `key` has settled.
-   *
-   * @template T
-   * @param {string} key comments filename the save writes to
-   * @param {() => Promise<T>} task
-   * @returns {Promise<T>}
-   */
-  function enqueueSave(key, task) {
-    const previous = saveQueues.get(key) ?? Promise.resolve();
-    const run = previous.then(task, task);
-    const tail = run.then(
-      () => {},
-      () => {}
-    );
-    saveQueues.set(key, tail);
-    tail.then(() => {
-      if (saveQueues.get(key) === tail) saveQueues.delete(key);
-    });
-    return run;
-  }
 
   /**
    * Look up the session for a request, or answer 400.
@@ -1084,44 +1077,42 @@ function createApp(options = {}) {
         return res.status(400).json({ error: error.message });
       }
 
-      const filename = commentsFilename(session.repoPath);
-      const outcome = await enqueueSave(filename, async () => {
-        const current = await readSavedComments(reviewsDir, session.repoPath);
+      // Comments posted without keys -- older pages, scripts -- get the key
+      // their content derives, so re-posting the same list keeps each
+      // comment's identity, and the follow-ups below can find their thread.
+      const incoming = withKeys(normalized);
 
+      let refusal = null;
+      const saved = await updateSavedComments(reviewsDir, session.repoPath, current => {
         if (conditional && (current.lastUpdated ?? null) !== expected) {
-          return {
-            status: 409,
-            body: {
-              error: 'Comments have changed since they were loaded. Reload, merge and retry.',
-              comments: current.comments,
-              lastUpdated: current.lastUpdated ?? null
-            }
+          refusal = {
+            error: 'Comments have changed since they were loaded. Reload, merge and retry.',
+            comments: current.comments,
+            lastUpdated: current.lastUpdated ?? null
           };
+          return null;
         }
-
-        await fs.mkdir(reviewsDir, { recursive: true });
 
         // `mode` is on the envelope rather than on each comment: it describes
         // the review, not any one remark in it, and it is what lets `reviewer
         // export` say what was compared. Without it an exported review could
         // only report where HEAD is, which says nothing about whether the
         // comments are about committed work or uncommitted work.
-        const lastUpdated = nextLastUpdated(current.lastUpdated ?? null);
-        const data = {
-          repoPath: session.repoPath,
-          lastUpdated,
-          mode: session.mode,
-          range: session.range,
-          ...(session.untracked === false ? { untracked: false } : {}),
-          comments: normalized
+        //
+        // Follow-ups already on disk are kept for every comment the save
+        // still holds: an agent may have answered in a thread since this tab
+        // last heard from the server, and a whole-list save must not erase it.
+        return {
+          comments: keepFollowUpsFrom(incoming, current.comments),
+          scope: { mode: session.mode, range: session.range, untracked: session.untracked }
         };
-
-        const target = path.join(reviewsDir, filename);
-        await fs.writeFile(target, `${JSON.stringify(data, null, 2)}\n`);
-
-        return { status: 200, body: { message: 'Comments saved successfully', lastUpdated } };
       });
 
+      const outcome = refusal
+        ? { status: 409, body: refusal }
+        // What was written, which can be more than what was sent -- the
+        // follow-ups kept from disk -- so the page can show it at once.
+        : { status: 200, body: { message: 'Comments saved successfully', lastUpdated: saved.lastUpdated, comments: saved.comments } };
       res.status(outcome.status).json(outcome.body);
     } catch (error) {
       if (error instanceof ReviewOwnershipError) {
@@ -1242,6 +1233,145 @@ function createApp(options = {}) {
     }
   });
 
+  /**
+   * The live feed for one open review.
+   *
+   * `comments` whenever the saved comments change -- whoever changed them:
+   * another tab, an agent answering in a thread, `reviewer reply` -- and once
+   * on connecting; `agents` whenever an agent connects, leaves, or starts on
+   * a thread; and, while a background session here is answering, `partial`
+   * with the answer as far as it has got. The page applies `comments` the way
+   * it applies a refused save, so nothing it is holding is lost.
+   */
+  app.get('/api/events/:repoId', (req, res) => {
+    const session = requireSession(res, req.params.repoId);
+    if (!session) return;
+
+    res.set({
+      'Content-Type': 'text/event-stream',
+      'Cache-Control': 'no-cache',
+      Connection: 'keep-alive'
+    });
+    res.write(': events\n\n');
+
+    const send = (event, data) => {
+      if (!res.writableEnded) res.write(`event: ${event}\ndata: ${JSON.stringify(data)}\n\n`);
+    };
+
+    const comments = watchComments(reviewsDir, session.repoPath, state => {
+      send('comments', { comments: state.comments, lastUpdated: state.lastUpdated ?? null });
+    }, { onError: error => console.error('Review events:', error.message) });
+    const agents = watchAgents(reviewsDir, session.repoPath, list => {
+      send('agents', { agents: list.map(describeAgent) });
+    });
+    const onLive = (repoPath, event, data) => {
+      if (repoPath === session.repoPath) send(event, data);
+    };
+    live.on('event', onLive);
+    send('answerer', answerers.get(session.repoPath)?.status() ?? null);
+
+    // Proxies close a connection that has been quiet for a minute or two.
+    const keepAlive = setInterval(() => res.write(': ping\n\n'), 20000);
+    keepAlive.unref();
+
+    res.on('close', () => {
+      comments.close();
+      agents.close();
+      live.off('event', onLive);
+      clearInterval(keepAlive);
+    });
+  });
+
+  /**
+   * The Claude Code sessions that worked in this repository, newest first,
+   * to choose the one that should answer -- normally the one that wrote the
+   * code under review.
+   */
+  app.get('/api/agent/sessions/:repoId', async (req, res) => {
+    const session = requireSession(res, req.params.repoId);
+    if (!session) return;
+    try {
+      const sessions = await listClaudeSessions(session.repoPath, { configDir: claude.configDir });
+      res.json({ sessions, answerer: answerers.get(session.repoPath)?.status() ?? null });
+    } catch (error) {
+      console.error('Session list error:', error);
+      res.status(500).json({ error: error.message });
+    }
+  });
+
+  /**
+   * Have a Claude Code session answer this review's comments.
+   *
+   * Resumes the session in the background -- as a copy unless `fork` is
+   * false -- and puts every thread waiting for an answer to it, then every
+   * comment and reply the reviewer writes from now on. Only a session that
+   * worked in this repository can be named: the id goes on a command line,
+   * and the list is the whitelist.
+   */
+  app.post('/api/agent/connect', async (req, res) => {
+    try {
+      const { repoId, sessionId, fork = true } = req.body ?? {};
+      const session = requireSession(res, repoId);
+      if (!session) return;
+      if (typeof fork !== 'boolean') {
+        return res.status(400).json({ error: 'fork must be true or false' });
+      }
+
+      const found = await findClaudeSession(session.repoPath, sessionId, { configDir: claude.configDir });
+      if (!found) {
+        return res.status(404).json({ error: 'No Claude Code session with that id has worked in this repository.' });
+      }
+
+      await answerers.get(session.repoPath)?.stop();
+      answerers.delete(session.repoPath);
+
+      const about = found.title ?? found.firstPrompt ?? found.id;
+      // Claude Code finds a session by the directory it ran in. If that has
+      // since been removed, the repository root is the next best place to
+      // run from, rather than a spawn error that reads like a missing binary.
+      const cwd = await fs.access(found.cwd).then(() => found.cwd, () => session.repoPath);
+      const background = new BackgroundSession({
+        sessionId: found.id,
+        cwd,
+        fork,
+        name: fork ? `Review answers: ${about}`.slice(0, 80) : null,
+        claude: claudeCommand,
+        spawn: claude.spawn
+      });
+      const answerer = new Answerer({
+        reviewsDir,
+        repoPath: session.repoPath,
+        session: background,
+        claudeSession: { id: found.id, title: about }
+      });
+      answerer.on('partial', data => live.emit('event', session.repoPath, 'partial', data));
+      answerer.on('failed', data => live.emit('event', session.repoPath, 'agent-error', data));
+      answerer.on('status', status => live.emit('event', session.repoPath, 'answerer', status));
+      answerers.set(session.repoPath, answerer);
+      background.start();
+
+      console.error(`Answering comments from Claude Code session ${found.id}${fork ? ' (in a copy)' : ''}`);
+      live.emit('event', session.repoPath, 'answerer', answerer.status());
+      res.json({ answerer: answerer.status() });
+    } catch (error) {
+      console.error('Agent connect error:', error);
+      res.status(500).json({ error: error.message });
+    }
+  });
+
+  /** Stop the background session answering this review, if there is one. */
+  app.post('/api/agent/disconnect', async (req, res) => {
+    const { repoId } = req.body ?? {};
+    const session = requireSession(res, repoId);
+    if (!session) return;
+
+    const answerer = answerers.get(session.repoPath);
+    answerers.delete(session.repoPath);
+    await answerer?.stop();
+    live.emit('event', session.repoPath, 'answerer', null);
+    res.json({ disconnected: Boolean(answerer) });
+  });
+
   /** Drop a session. Saved comments on disk are left alone. */
   app.delete('/api/cleanup/:repoId', (req, res) => {
     sessions.delete(req.params.repoId);
@@ -1280,6 +1410,9 @@ function startServer(options = {}) {
       }
       resolve(server);
     });
+    // A background session must not outlive the server that started it.
+    server.stopAgents = app.locals.stopAgents;
+    server.on('close', () => { app.locals.stopAgents(); });
     server.on('error', reject);
   });
 }

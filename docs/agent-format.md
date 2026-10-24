@@ -57,12 +57,14 @@ Markdown that has to be parsed back out of prose.
   "comments": [
     {
       "id": "src/auth.js:10",
+      "key": "Xq3vB9aK",
       "file": "src/auth.js",
       "line": 10,
       "anchor": "  if (scheme !== SCHEME || !token) return null;",
       "selection": "scheme !== SCHEME",
       "body": "Reject an empty token too.",
       "followUps": [
+        { "body": "An empty token fails the lookup anyway; I'd still reject it here.", "at": "2026-08-10T13:58:12.000Z", "by": "claude" },
         { "body": "Still open after the rebase", "at": "2026-08-10T14:00:00.000Z" }
       ]
     }
@@ -88,7 +90,8 @@ Markdown that has to be parsed back out of prose.
 | `comments[].anchor` | The exact source line, or `null` if none was recorded. **Locate comments by this.** |
 | `comments[].selection` | The snippet highlighted, when the reviewer selected one. Omitted otherwise. |
 | `comments[].body` | The comment text. |
-| `comments[].followUps` | Threaded replies, each `{ body, at? }`. Omitted when there are none. |
+| `comments[].key` | The key the comment was saved with. Unlike `id` it survives the code moving and the comment being edited, and it is what `reviewer reply <key>` takes. |
+| `comments[].followUps` | Threaded replies, each `{ body, at?, by? }`. `by` names an agent that answered in the thread, such as `claude`; absent means the reviewer. Omitted when there are none. |
 
 Optional fields are omitted rather than set to `null`, so `"selection" in
 comment` is a meaningful test. Comments are grouped by file in the order the

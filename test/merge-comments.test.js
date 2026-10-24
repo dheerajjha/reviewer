@@ -29,7 +29,7 @@ function loadFunctions(names) {
   return new Function(`${declarations.join('\n')}; return ${names[names.length - 1]};`)();
 }
 
-const mergeCommentsForRetry = loadFunctions(['commentKey', 'toPersistedComment', 'mergeCommentsForRetry']);
+const mergeCommentsForRetry = loadFunctions(['commentKey', 'followUpIdentity', 'unionFollowUps', 'toPersistedComment', 'mergeCommentsForRetry']);
 
 const comment = (text, extra = {}) => ({ file: 'app.js', line: 1, lineContent: 'a', text, ...extra });
 const texts = comments => comments.map(entry => entry.text);
@@ -88,4 +88,54 @@ test('a comment changed here is not dropped when it was deleted elsewhere', () =
 
   assert.deepEqual(texts(merged), ['noted']);
   assert.deepEqual(merged[0].followUps, [{ text: 'still open' }]);
+});
+
+// Agents answer in threads by adding follow-ups from outside the page. The
+// merge is what puts those answers in front of the reviewer, and what must
+// never let a save from this tab take one back out.
+
+const keyed = (key, text, extra = {}) => ({ key, file: 'app.js', line: 1, lineContent: 'a', text, ...extra });
+const answer = { key: 'f-answer', text: 'It is inclusive on purpose.', timestamp: '2026-10-24T10:00:05.000Z', by: 'claude' };
+const question = { key: 'f-question', text: 'Why inclusive?', timestamp: '2026-10-24T10:00:00.000Z' };
+
+test('an answer added elsewhere to a thread this tab has not touched is taken as it stands', () => {
+  const base = keyed('k1', 'expiry check');
+  const remote = keyed('k1', 'expiry check', { followUps: [answer] });
+
+  const merged = mergeCommentsForRetry([{ ...base, diffLineIndex: 4 }], [base], [remote]);
+
+  assert.deepEqual(merged[0].followUps, [answer]);
+  assert.equal(merged[0].diffLineIndex, 4, 'where this tab drew the comment is kept');
+});
+
+test('an answer added elsewhere survives a follow-up added here to the same thread', () => {
+  const base = keyed('k1', 'expiry check', { followUps: [question] });
+  const mine = { key: 'f-mine', text: 'Also, what about time zones?', timestamp: '2026-10-24T10:00:09.000Z' };
+  const local = keyed('k1', 'expiry check', { followUps: [question, mine] });
+  const remote = keyed('k1', 'expiry check', { followUps: [question, answer] });
+
+  const merged = mergeCommentsForRetry([local], [base], [remote]);
+
+  assert.deepEqual(merged[0].followUps.map(f => f.key), ['f-question', 'f-answer', 'f-mine'],
+    'both are kept, in the order they were written');
+});
+
+test('an edit made here keeps its text and still picks up the answer', () => {
+  const base = keyed('k1', 'expiry chek');
+  const local = keyed('k1', 'expiry check');
+  const remote = keyed('k1', 'expiry chek', { followUps: [answer] });
+
+  const merged = mergeCommentsForRetry([local], [base], [remote]);
+
+  assert.equal(merged[0].text, 'expiry check');
+  assert.deepEqual(merged[0].followUps, [answer]);
+});
+
+test('two comments with the same text on one line stay two comments', () => {
+  const one = keyed('k1', 'same');
+  const two = keyed('k2', 'same');
+
+  const merged = mergeCommentsForRetry([one], [one], [one, two]);
+
+  assert.deepEqual(merged.map(c => c.key), ['k1', 'k2']);
 });

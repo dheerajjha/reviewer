@@ -11,6 +11,9 @@ const { commentsFilename, legacyCommentsFilename } = require('../lib/review');
 
 const COMMENT = { file: 'src/auth.js', line: 1, text: 'needs a null check' };
 
+/** Comments as written, without the `key` every read now adds. */
+const withoutKeys = comments => comments.map(({ key, ...comment }) => comment);
+
 /** @returns {Promise<string>} a fresh reviews directory */
 async function reviewsDir() {
   return fs.mkdtemp(path.join(os.tmpdir(), 'reviewer-store-'));
@@ -37,7 +40,7 @@ test('comments are read back for the repository that saved them', async () => {
 
   const { comments, adopted } = await readSavedComments(dir, '/work/api');
 
-  assert.deepEqual(comments, [COMMENT]);
+  assert.deepEqual(withoutKeys(comments), [COMMENT]);
   assert.equal(adopted, false);
 });
 
@@ -66,7 +69,7 @@ test('saved scope keeps only an explicit tracked-only working comparison, includ
       t.after(() => fs.rm(dir, { recursive: true, force: true }));
       await write(dir, nameOf('/work/api'), { repoPath: '/work/api', comments: [COMMENT], ...scope });
       const saved = await readSavedComments(dir, '/work/api');
-      assert.deepEqual(saved.comments, [COMMENT]);
+      assert.deepEqual(withoutKeys(saved.comments), [COMMENT]);
       if (scope.mode === 'working' && scope.untracked === false) {
         assert.equal(saved.untracked, false);
       } else {
@@ -96,7 +99,7 @@ test('a review saved under the legacy name is adopted by its own repository', as
 
   const { comments, adopted } = await readSavedComments(dir, '/work/api');
 
-  assert.deepEqual(comments, [COMMENT]);
+  assert.deepEqual(withoutKeys(comments), [COMMENT]);
   assert.equal(adopted, true);
   // Adopting moves it, so the old name stops shadowing another checkout.
   await assert.rejects(fs.access(path.join(dir, legacyCommentsFilename('/work/api'))));
@@ -110,7 +113,7 @@ test('an adopted review is read straight from the new name afterwards', async ()
   await readSavedComments(dir, '/work/api');
   const second = await readSavedComments(dir, '/work/api');
 
-  assert.deepEqual(second, { comments: [COMMENT], mode: null, range: null, adopted: false, lastUpdated: null });
+  assert.deepEqual({ ...second, comments: withoutKeys(second.comments) }, { comments: [COMMENT], mode: null, range: null, adopted: false, lastUpdated: null });
 });
 
 test('a legacy review belonging to another checkout is not adopted', async () => {
@@ -135,7 +138,7 @@ test('a legacy review with no recorded owner is adopted', async () => {
 
   const { comments, adopted } = await readSavedComments(dir, '/work/api');
 
-  assert.deepEqual(comments, [COMMENT]);
+  assert.deepEqual(withoutKeys(comments), [COMMENT]);
   assert.equal(adopted, true);
 });
 
@@ -167,5 +170,80 @@ test('a symlinked checkout reads the same review as its real path', async () => 
 
   await write(dir, commentsFilename(real), { repoPath: real, comments: [COMMENT] });
 
-  assert.deepEqual((await readSavedComments(dir, link)).comments, [COMMENT]);
+  assert.deepEqual(withoutKeys((await readSavedComments(dir, link)).comments), [COMMENT]);
+});
+
+const { execFile } = require('child_process');
+const { updateSavedComments, nextLastUpdated } = require('../lib/store');
+
+test('an update writes keyed comments with a strictly later stamp, and null writes nothing', async t => {
+  const dir = await reviewsDir();
+  t.after(() => fs.rm(dir, { recursive: true, force: true }));
+  await write(dir, commentsFilename('/work/api'), {
+    repoPath: '/work/api', lastUpdated: '2026-10-24T00:00:00.000Z', mode: 'working', comments: [COMMENT]
+  });
+
+  const { comments: [current] } = await readSavedComments(dir, '/work/api');
+  const written = await updateSavedComments(dir, '/work/api', state => ({
+    comments: [{ ...state.comments[0], followUps: [{ key: 'f1', text: 'answer', by: 'claude' }] }]
+  }));
+
+  assert.equal(written.written, true);
+  const onDisk = JSON.parse(await fs.readFile(path.join(dir, commentsFilename('/work/api')), 'utf-8'));
+  assert.equal(onDisk.comments[0].key, current.key, 'the derived key is what gets persisted');
+  assert.equal(onDisk.mode, 'working', 'a reply leaves the review\'s scope alone');
+  assert.ok(onDisk.lastUpdated > '2026-10-24T00:00:00.000Z');
+
+  const untouched = await updateSavedComments(dir, '/work/api', () => null);
+  assert.equal(untouched.written, false);
+  assert.equal(untouched.lastUpdated, onDisk.lastUpdated);
+});
+
+test('stamps move forward even when two saves land in the same millisecond', () => {
+  const later = new Date(Date.now() + 60000).toISOString();
+  assert.ok(nextLastUpdated(later) > later);
+  assert.ok(nextLastUpdated(null));
+});
+
+test('writers in separate processes do not lose each other\'s replies', async t => {
+  const dir = await reviewsDir();
+  t.after(() => fs.rm(dir, { recursive: true, force: true }));
+  await write(dir, commentsFilename('/work/api'), { repoPath: '/work/api', comments: [{ ...COMMENT, key: 'k1' }] });
+
+  // Each process appends twenty replies, one read-modify-write at a time.
+  // Without the lock the two interleave and the file ends up with fewer.
+  const writer = `
+    const { updateSavedComments } = require(${JSON.stringify(path.join(__dirname, '..', 'lib', 'store'))});
+    (async () => {
+      for (let i = 0; i < 20; i++) {
+        await updateSavedComments(process.argv[1], '/work/api', state => ({
+          comments: state.comments.map(c => ({ ...c, followUps: [...(c.followUps || []), { key: process.argv[2] + i, text: 'reply ' + i, by: 'claude' }] }))
+        }));
+      }
+    })();
+  `;
+  const run = name => new Promise((resolve, reject) => {
+    execFile(process.execPath, ['-e', writer, dir, name], { timeout: 30000 }, error => (error ? reject(error) : resolve()));
+  });
+  await Promise.all([run('a'), run('b')]);
+
+  const { comments } = await readSavedComments(dir, '/work/api');
+  assert.equal(comments[0].followUps.length, 40);
+});
+
+test('a lock left behind by a writer that died is taken over', async t => {
+  const dir = await reviewsDir();
+  t.after(() => fs.rm(dir, { recursive: true, force: true }));
+  const file = path.join(dir, commentsFilename('/work/api'));
+  await write(dir, commentsFilename('/work/api'), { repoPath: '/work/api', comments: [COMMENT] });
+  await fs.writeFile(`${file}.lock`, '99999\n');
+  const old = new Date(Date.now() - 60000);
+  await fs.utimes(`${file}.lock`, old, old);
+
+  const started = Date.now();
+  const result = await updateSavedComments(dir, '/work/api', state => ({ comments: state.comments }));
+
+  assert.equal(result.written, true);
+  assert.ok(Date.now() - started < 3000);
+  await assert.rejects(fs.stat(`${file}.lock`), { code: 'ENOENT' }, 'and released afterwards');
 });

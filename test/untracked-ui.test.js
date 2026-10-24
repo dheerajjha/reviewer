@@ -48,7 +48,7 @@ function loadContext(data) {
     showStatus() {}, clearStatus() {}, hidePicker() {}, showPicker() {}, setRepoButton() {},
     refreshCommitContext: async () => {}, loadRefs: async () => {},
     renderScope() {}, renderCommitList() {}, updateCommentsSidebar() {},
-    displayFiles() {}, showEmptyFileList() {}, clearCodePane() {}, offerHelpOnce() {},
+    displayFiles() {}, showEmptyFileList() {}, clearCodePane() {}, offerHelpOnce() {}, openReviewEvents() {},
     loadCommentsFromBackend: async () => [], loadFile() {},
     plural: (n, word) => `${n} ${word}`,
     fetch: async (url, options) => {

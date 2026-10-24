@@ -19,6 +19,12 @@
           <span id="repoButtonLabel">Open a repository</span>
         </button>
 
+        <button id="agentButton" class="agent-button hidden" onclick="openAgentDialog()"
+                title="Have the Claude Code session that wrote this code answer your comments">
+          <span class="agent-dot" aria-hidden="true"></span>
+          <span id="agentButtonLabel">Ask Claude Code</span>
+        </button>
+
         <button id="helpButton" class="icon-button" onclick="openHelp()"
                 title="How to review" aria-label="How to review">
           <svg width="16" height="16" viewBox="0 0 16 16" fill="currentColor" aria-hidden="true">
@@ -198,6 +204,33 @@
             <kbd>n</kbd><kbd>p</kbd> comments · <kbd>[</kbd><kbd>]</kbd> commits · <kbd>c</kbd> new comment · <kbd>?</kbd> help
           </span>
           <button class="help-done" onclick="closeHelp()">Got it</button>
+        </div>
+      </div>
+    </div>
+
+    <!-- Connecting a Claude Code session to answer comments in their threads. -->
+    <div id="agentModal" class="help-modal hidden" onclick="if (event.target.id === 'agentModal') closeAgentDialog()">
+      <div class="help-card agent-card" role="dialog" aria-modal="true" aria-labelledby="agentTitle">
+        <div class="help-head">
+          <h2 id="agentTitle">Ask the session that wrote this code</h2>
+          <button class="icon-button" onclick="closeAgentDialog()" aria-label="Close">
+            <svg width="16" height="16" viewBox="0 0 16 16" fill="currentColor" aria-hidden="true">
+              <path d="M3.72 3.72a.75.75 0 011.06 0L8 6.94l3.22-3.22a.75.75 0 111.06 1.06L9.06 8l3.22 3.22a.75.75 0 11-1.06 1.06L8 9.06l-3.22 3.22a.75.75 0 01-1.06-1.06L6.94 8 3.72 4.78a.75.75 0 010-1.06z"></path>
+            </svg>
+          </button>
+        </div>
+        <div class="agent-body">
+          <div id="agentConnected" class="agent-connected hidden"></div>
+          <p class="agent-intro">Pick the Claude Code session that worked on this repository. Every comment you
+            write, and every reply you add, goes to it, and its answer appears in the thread as it is written.</p>
+          <div id="agentSessions" class="agent-sessions"></div>
+          <label class="agent-fork">
+            <input type="checkbox" id="agentFork" checked>
+            Answer in a copy of the session, so the original stays exactly as it was
+          </label>
+          <p class="agent-note">In the background the session can read the repository and nothing else.
+            To have it answer live in your terminal instead, copy its command and run it there:
+            your session, your permissions, and every comment arrives as it is written.</p>
         </div>
       </div>
     </div>

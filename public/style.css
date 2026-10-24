@@ -651,6 +651,13 @@ button:disabled {
   border-top: 1px solid rgba(0, 0, 0, 0.1);
 }
 
+/* The box keeps its right edge clear for the action buttons, which sit at
+   the top. A thread starts below them, so it can have the full width --
+   which an answer of a few paragraphs needs. */
+.comment-box .comment-followups {
+  margin-right: -194px;
+}
+
 .comment-followup-item {
   margin-bottom: 8px;
   padding: 8px 12px;
@@ -2221,4 +2228,268 @@ button:disabled {
   border-left: 3px solid #d1d5da;
   max-height: 8.5em;
   overflow-y: auto;
+}
+
+/* Agents answering in threads
+ *
+ * An answer from the session that wrote the code sits in the thread like any
+ * reply, marked with who wrote it so it is never mistaken for the reviewer's
+ * own note. The orange is the same family Claude Code uses for itself.
+ */
+.agent-button {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  padding: 7px 12px;
+  border: 1px solid #d1d5da;
+  border-radius: 6px;
+  background: white;
+  font: inherit;
+  font-size: 13px;
+  font-weight: 500;
+  color: #24292e;
+  cursor: pointer;
+  white-space: nowrap;
+}
+
+.agent-button:hover {
+  background: #f6f8fa;
+  border-color: #c6cbd1;
+}
+
+.agent-dot {
+  flex: none;
+  width: 8px;
+  height: 8px;
+  border-radius: 50%;
+  background: #c9ced6;
+}
+
+.agent-button.connected .agent-dot,
+.agent-connection .agent-dot {
+  background: #2da44e;
+}
+
+.agent-button.working .agent-dot {
+  background: #d97757;
+  animation: agent-pulse 1.2s ease-in-out infinite;
+}
+
+@keyframes agent-pulse {
+  0%, 100% { opacity: 1; }
+  50% { opacity: 0.35; }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .agent-button.working .agent-dot { animation: none; }
+}
+
+.comment-followup-item.followup-agent {
+  border-left-color: #d97757;
+  background: rgba(217, 119, 87, 0.08);
+}
+
+.followup-author {
+  display: block;
+  margin-bottom: 4px;
+  font-size: 11px;
+  font-weight: 600;
+  color: #b0532e;
+}
+
+.followup-markdown code {
+  padding: 1px 4px;
+  border-radius: 3px;
+  background: rgba(27, 31, 35, 0.07);
+  font-family: SFMono-Regular, Consolas, 'Liberation Mono', Menlo, monospace;
+  font-size: 11.5px;
+}
+
+.followup-code {
+  margin: 6px 0;
+  padding: 8px 10px;
+  border-radius: 4px;
+  background: rgba(27, 31, 35, 0.06);
+  overflow-x: auto;
+  white-space: pre;
+}
+
+.followup-code code {
+  padding: 0;
+  background: none;
+}
+
+.agent-typing {
+  color: #8a6d5f;
+  font-style: italic;
+}
+
+.followup-queued {
+  margin-top: 4px;
+  font-size: 11px;
+  color: #8a6d5f;
+  font-style: italic;
+}
+
+.comment-item-thread {
+  margin-top: 4px;
+  font-size: 11px;
+  color: #6a737d;
+}
+
+.comment-item-answering {
+  color: #b0532e;
+}
+
+.agent-card {
+  max-width: 640px;
+}
+
+.agent-body {
+  padding: 18px 22px 22px;
+  overflow-y: auto;
+  font-size: 13px;
+  color: #24292e;
+}
+
+.agent-intro,
+.agent-note {
+  line-height: 1.5;
+  color: #57606a;
+}
+
+.agent-note {
+  margin-top: 12px;
+  font-size: 12px;
+}
+
+.agent-sessions {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+  margin: 14px 0;
+}
+
+.agent-session {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  padding: 10px 12px;
+  border: 1px solid #e1e4e8;
+  border-radius: 6px;
+}
+
+.agent-session-copy {
+  opacity: 0.75;
+}
+
+.agent-session-text {
+  flex: 1;
+  min-width: 0;
+}
+
+.agent-session-title {
+  font-weight: 500;
+  overflow: hidden;
+  display: -webkit-box;
+  -webkit-line-clamp: 2;
+  -webkit-box-orient: vertical;
+}
+
+.agent-session-meta,
+.agent-connection-meta {
+  margin-top: 2px;
+  font-size: 11.5px;
+  color: #6a737d;
+}
+
+.agent-session-actions {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+  flex: none;
+}
+
+.agent-connect,
+.agent-copy,
+.agent-disconnect {
+  padding: 5px 10px;
+  border-radius: 6px;
+  font: inherit;
+  font-size: 12px;
+  cursor: pointer;
+}
+
+.agent-connect {
+  border: none;
+  background: #d97757;
+  color: white;
+}
+
+.agent-connect:hover {
+  background: #c4643f;
+}
+
+.agent-copy,
+.agent-disconnect {
+  border: 1px solid #d1d5da;
+  background: white;
+  color: #24292e;
+}
+
+.agent-copy:hover,
+.agent-disconnect:hover {
+  background: #f6f8fa;
+}
+
+.agent-connected {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+  margin-bottom: 14px;
+}
+
+.agent-connection {
+  display: flex;
+  align-items: flex-start;
+  gap: 10px;
+  padding: 10px 12px;
+  border-radius: 6px;
+  background: #f0faf3;
+  border: 1px solid #c8e6d0;
+}
+
+.agent-connection .agent-dot {
+  margin-top: 5px;
+}
+
+.agent-connection > div {
+  flex: 1;
+  min-width: 0;
+}
+
+.agent-connection-title {
+  margin-top: 2px;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.agent-fork {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  font-size: 12.5px;
+  color: #24292e;
+}
+
+.agent-empty {
+  padding: 12px 0;
+  color: #6a737d;
+}
+
+@media (max-width: 640px) {
+  .agent-session { flex-direction: column; align-items: stretch; }
+  .agent-session-actions { flex-direction: row; }
+  .agent-button { padding: 7px 9px; }
 }

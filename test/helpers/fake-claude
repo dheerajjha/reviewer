@@ -1,0 +1,78 @@
+#!/usr/bin/env node
+'use strict';
+
+/**
+ * A stand-in for the `claude` executable, so tests never run the real one --
+ * which would need an account, the network and minutes per answer.
+ *
+ * It records how it was invoked, then speaks enough of `claude -p
+ * --input-format stream-json --output-format stream-json` to answer: for each
+ * user message, an init event, the answer in a few text deltas, and a result.
+ *
+ * Environment:
+ *   FAKE_CLAUDE_ARGS        append each invocation's argv here, one JSON line
+ *   FAKE_CLAUDE_CRASH_ONCE  exit without answering the first time, marking this file
+ *   FAKE_CLAUDE_FAIL        answer every question with an error result
+ *
+ * No `.js` extension on purpose: `node --test` runs every .js file under
+ * test/, and this is not a test.
+ */
+
+const fs = require('fs');
+const crypto = require('crypto');
+
+const args = process.argv.slice(2);
+if (process.env.FAKE_CLAUDE_ARGS) {
+  fs.appendFileSync(process.env.FAKE_CLAUDE_ARGS, `${JSON.stringify(args)}\n`);
+}
+
+const option = name => {
+  const index = args.indexOf(name);
+  return index === -1 ? null : args[index + 1];
+};
+
+if (!args.includes('-p')) process.exit(0); // an interactive launch, as `reviewer connect` does
+
+const resumed = option('--resume');
+const session = args.includes('--fork-session') ? crypto.randomUUID() : resumed;
+const send = event => process.stdout.write(`${JSON.stringify(event)}\n`);
+process.stdout.on('error', () => process.exit(0)); // whoever was reading has gone
+let asked = 0;
+
+let buffered = '';
+process.stdin.setEncoding('utf-8');
+process.stdin.on('data', chunk => {
+  buffered += chunk;
+  let newline;
+  while ((newline = buffered.indexOf('\n')) >= 0) {
+    const line = buffered.slice(0, newline);
+    buffered = buffered.slice(newline + 1);
+    if (line.trim()) answer(JSON.parse(line));
+  }
+});
+process.stdin.on('end', () => process.exit(0));
+
+function answer(message) {
+  asked += 1;
+  const crashMarker = process.env.FAKE_CLAUDE_CRASH_ONCE;
+  if (crashMarker && !fs.existsSync(crashMarker)) {
+    fs.writeFileSync(crashMarker, 'crashed');
+    process.stderr.write('fake claude: crashing as asked\n');
+    process.exit(3);
+  }
+
+  const prompt = message.message.content;
+  const reviewerLines = prompt.split('\n').filter(l => l.startsWith('Reviewer: '));
+  const text = `Answer ${asked} to "${reviewerLines[reviewerLines.length - 1]?.slice(10) ?? ''}"`;
+
+  send({ type: 'system', subtype: 'init', session_id: session, model: 'fake-model', tools: ['Read', 'Grep', 'Glob'] });
+  send({ type: 'stream_event', event: { type: 'message_start' }, session_id: session });
+  for (const piece of text.match(/.{1,8}/g)) {
+    send({ type: 'stream_event', event: { type: 'content_block_delta', delta: { type: 'text_delta', text: piece } }, session_id: session });
+  }
+  if (process.env.FAKE_CLAUDE_FAIL) {
+    send({ type: 'result', subtype: 'error_during_execution', is_error: true, result: 'fake failure', session_id: session });
+  } else {
+    send({ type: 'result', subtype: 'success', is_error: false, result: text, session_id: session });
+  }
+}
