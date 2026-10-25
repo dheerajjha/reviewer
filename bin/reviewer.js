@@ -32,6 +32,14 @@ const { resolveClaudeCommand } = require('../lib/claude-command');
 // typed, so a hint can be pasted back as-is. See invokedAs in lib/cli.js.
 const NAME = invokedAs(process.env, process.argv[1]);
 
+/** An expected export failure that needs no usage text. */
+class ExportError extends Error {
+  constructor(message) {
+    super(message);
+    this.name = 'ExportError';
+  }
+}
+
 /**
  * The `reviewer` command: start the local server and open it in a browser.
  */
@@ -88,23 +96,27 @@ async function exportReview(options) {
   // review whose repository is no longer a repository is still exportable.
   const given = options.repoPath ?? process.cwd();
   const repoPath = (await repoRoot(given)) ?? given;
+  const dataDir = reviewsDir();
 
   let document;
   try {
-    document = await loadReviewDocument(reviewsDir(), repoPath, { file: options.file });
+    document = await loadReviewDocument(dataDir, repoPath, { file: options.file });
   } catch (error) {
     // `lib/export` raises domain errors so that an MCP tool or an agent
-    // handover can answer them its own way. The terminal wants all three as
-    // the same usage error, with the same wording it has always printed.
+    // handover can answer them its own way. These failures need a short
+    // explanation in the terminal; usage text would bury that explanation.
     if (
       error instanceof NoReviewError ||
       error instanceof NoMatchingCommentsError ||
       error instanceof ReviewOwnershipError
     ) {
-      if (repoPath === given && error instanceof NoReviewError && !(await repoRoot(given))) {
-        throw new UsageError(`${given} is not inside a git repository, and no review is saved for it.`);
+      if (error instanceof NoReviewError) {
+        if (repoPath === given && !(await repoRoot(given))) {
+          throw new ExportError(`${given} is not inside a git repository, and no review is saved for it in ${dataDir}.`);
+        }
+        throw new ExportError(`No saved review for ${repoPath} in ${dataDir}. Review it first, then export.`);
       }
-      throw new UsageError(error.message);
+      throw new ExportError(error.message);
     }
     throw error;
   }
@@ -546,6 +558,11 @@ async function main() {
 }
 
 main().catch(error => {
+  if (error instanceof ExportError) {
+    console.error(`error: ${error.message}`);
+    process.exit(2);
+  }
+
   if (error instanceof UsageError) {
     console.error(`error: ${error.message}\n`);
     process.stderr.write(usage(NAME));

@@ -6,6 +6,12 @@ adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
 ## [Unreleased]
 
+### Fixed
+
+- Expected `reviewer export` failures print only the error line and still exit
+  with code 2. Missing-review errors include the data directory searched; invalid
+  flags and missing flag values still print usage help.
+
 ## [2.17.0] - 2026-10-24
 
 Search across the whole change, and the repository around it, from the

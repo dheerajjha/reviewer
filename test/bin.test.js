@@ -129,6 +129,15 @@ test('an unknown option exits 2 with usage on stderr', async () => {
   assert.match(stderr, /Usage:/);
 });
 
+test('export with a missing flag value exits 2 with usage on stderr', async () => {
+  const { code, stdout, stderr } = await run(['export', '--file']);
+
+  assert.equal(code, 2);
+  assert.equal(stdout, '');
+  assert.match(stderr, /--file/);
+  assert.match(stderr, /Usage:/);
+});
+
 test('a bad port exits 2', async () => {
   const { code, stderr } = await run(['--port', 'abc']);
 
@@ -147,20 +156,39 @@ test('export refuses when the repository has no saved review', async t => {
   const repoPath = await createTempRepo();
   t.after(() => cleanup(repoPath));
 
-  const { code, stderr } = await run(['export', repoPath]);
+  const { code, stdout, stderr } = await run(['export', repoPath]);
 
   assert.equal(code, 2);
-  assert.match(stderr, /No saved review/);
+  assert.equal(stdout, '');
+  assert.equal(stderr, `error: No saved review for ${repoPath} in ${REVIEWS_DIR}. Review it first, then export.\n`);
 });
 
 test('export explains when no review is saved outside a repository', async t => {
   const dir = await createTempDir();
   t.after(() => cleanup(dir));
 
-  const { code, stderr } = await run(['export', dir]);
+  const { code, stdout, stderr } = await run(['export', dir]);
 
   assert.equal(code, 2);
-  assert.match(stderr, /is not inside a git repository, and no review is saved for it/);
+  assert.equal(stdout, '');
+  assert.equal(stderr, `error: ${dir} is not inside a git repository, and no review is saved for it in ${REVIEWS_DIR}.\n`);
+});
+
+test('export reports review ownership errors on one line', async t => {
+  const repoPath = await createTempRepo();
+  const owner = await createTempRepo();
+  t.after(() => cleanup(repoPath));
+  t.after(() => cleanup(owner));
+
+  const saved = await saveComments(repoPath, []);
+  t.after(() => fs.rm(saved, { force: true }));
+  await fs.writeFile(saved, JSON.stringify({ repoPath: owner, comments: [] }));
+
+  const { code, stdout, stderr } = await run(['export', repoPath]);
+
+  assert.equal(code, 2);
+  assert.equal(stdout, '');
+  assert.equal(stderr, `error: The saved review in this file was written for ${owner}, not ${repoPath}. Refusing to serve one repository's review under another's name.\n`);
 });
 
 test('export keeps working when a reviewed repository is no longer a repository', async t => {
@@ -222,7 +250,7 @@ test('export --file refuses when that file has no comments', async t => {
 
   assert.equal(code, 2);
   assert.equal(stdout, '');
-  assert.match(stderr, /no comments for src\/missing\.js/);
+  assert.equal(stderr, `error: The saved review for ${repoPath} has no comments for src/missing.js.\n`);
 });
 
 test('it serves a staged review of the requested repository, then stops on SIGINT', async t => {
