@@ -170,8 +170,15 @@ test('when Claude Code closes the pipe the channel exits and stops claiming to b
   const { request, notify, child, exited, repoPath, reviewsDir } = await startChannel(t);
   await request('initialize', { protocolVersion: '2025-11-25', capabilities: {} });
   notify('notifications/initialized');
-  await new Promise(resolve => setTimeout(resolve, 300));
-  assert.equal((await listAgents(reviewsDir, repoPath)).length, 1);
+  // The presence file appears once the channel has announced itself, which on
+  // a slow runner (Windows, Node 18) can take longer than any fixed pause.
+  let agents = [];
+  for (const deadline = Date.now() + 5000; Date.now() < deadline;) {
+    agents = await listAgents(reviewsDir, repoPath);
+    if (agents.length) break;
+    await new Promise(resolve => setTimeout(resolve, 25));
+  }
+  assert.equal(agents.length, 1);
 
   child.stdin.end();
   assert.equal(await exited, 0);
