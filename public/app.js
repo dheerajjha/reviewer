@@ -3040,9 +3040,49 @@ function sinceText(iso) {
   return timeAgo(iso) || new Date(iso).toLocaleString();
 }
 
+// Where the answers go: a copy of the session (the default, which leaves the
+// original exactly as it was) or the session itself. Remembered per browser.
+const ANSWER_IN_COPY_KEY = 'reviewer.agent.answerInCopy';
+
+function answerInCopyPreference() {
+  try {
+    return localStorage.getItem(ANSWER_IN_COPY_KEY) !== '0';
+  } catch {
+    return true;
+  }
+}
+
+function renderAnswerMode(copy) {
+  document.getElementById('agentFork').checked = copy;
+  document.getElementById('agentModeNote').textContent = copy
+    ? 'The original session stays exactly as it was. The questions and answers go into a copy named "Review answers".'
+    : 'The questions and answers are added to the session\'s own history. A terminal that already has it open ' +
+      'will not see them until the session is resumed; to watch them arrive there, use Copy live command.';
+}
+
+/**
+ * The switch flipped. It is remembered for next time, and a background session
+ * already answering moves over straight away: the same session, reconnected in
+ * the other mode, without picking it again. Threads still waiting for an answer
+ * are asked again there.
+ */
+async function onAnswerModeChange(copy) {
+  try {
+    localStorage.setItem(ANSWER_IN_COPY_KEY, copy ? '1' : '0');
+  } catch {
+    // A preference only; the switch still works for this page.
+  }
+  renderAnswerMode(copy);
+  const answering = agentState.answerer;
+  if (answering && answering.forked !== copy) await startAnswering(answering.session, copy);
+}
+
 async function openAgentDialog() {
   if (!currentRepoId) return;
   document.getElementById('agentModal').classList.remove('hidden');
+  // A session already answering shows the mode it is in; otherwise the switch
+  // starts where it was left.
+  renderAnswerMode(agentState.answerer ? agentState.answerer.forked : answerInCopyPreference());
   const list = document.getElementById('agentSessions');
   list.innerHTML = '<p class="agent-empty">Looking for Claude Code sessions…</p>';
   renderAgentConnection();
@@ -3112,21 +3152,37 @@ function renderAgentSessions() {
 async function connectAgent(index) {
   const session = agentState.sessions?.[Number(index)];
   if (!session || !currentRepoId) return;
-  const fork = document.getElementById('agentFork').checked;
+  if (await startAnswering(session.id, document.getElementById('agentFork').checked)) closeAgentDialog();
+}
+
+/**
+ * Have a session answer the comments in the background, in a copy of it or in
+ * the session itself. Connecting while one is already answering replaces it.
+ *
+ * @returns {Promise<boolean>} whether it is answering now
+ */
+async function startAnswering(sessionId, fork) {
+  if (!currentRepoId) return false;
   try {
     const response = await fetch(`${API_BASE}/agent/connect`, {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ repoId: currentRepoId, sessionId: session.id, fork })
+      body: JSON.stringify({ repoId: currentRepoId, sessionId, fork })
     });
     const data = await response.json();
     if (!response.ok) throw new Error(data.error || 'Could not connect');
     agentState.answerer = data.answerer;
-    closeAgentDialog();
+    renderAgentConnection();
     refreshPendingAnswers();
-    showStatus('Claude Code will answer your comments in their threads.', 'success');
+    showStatus(fork
+      ? 'Claude Code will answer your comments in a copy of the session.'
+      : 'Claude Code will answer your comments in the session itself.', 'success');
+    return true;
   } catch (error) {
     showStatus(`Could not connect Claude Code: ${error.message}`, 'error');
+    // The switch shows what is actually happening, not what was asked for.
+    if (agentState.answerer) renderAnswerMode(agentState.answerer.forked);
+    return false;
   }
 }
 

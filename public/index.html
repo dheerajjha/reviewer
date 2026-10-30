@@ -231,10 +231,14 @@
           <p class="agent-intro">Pick the Claude Code session that worked on this repository. Every comment you
             write, and every reply you add, goes to it, and its answer appears in the thread as it is written.</p>
           <div id="agentSessions" class="agent-sessions"></div>
-          <label class="agent-fork">
-            <input type="checkbox" id="agentFork" checked>
-            Answer in a copy of the session, so the original stays exactly as it was
-          </label>
+          <div class="agent-mode">
+            <label class="agent-switch">
+              <input type="checkbox" id="agentFork" role="switch" checked onchange="onAnswerModeChange(this.checked)">
+              <span class="agent-switch-track" aria-hidden="true"></span>
+              <span>Answer in a copy of the session</span>
+            </label>
+            <p id="agentModeNote" class="agent-mode-note"></p>
+          </div>
           <p class="agent-note">In the background the session can read the repository and nothing else.
             To have it answer live in your terminal instead, copy its command and run it there:
             your session, your permissions, and every comment arrives as it is written.</p>

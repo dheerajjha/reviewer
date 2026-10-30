@@ -8,6 +8,12 @@ adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
 ### Added
 
+- **Answer in the session itself, with a switch.** The Ask Claude Code dialog's
+  "Answer in a copy of the session" is now a switch the page remembers. Turn it
+  off and the answers go into the session's own history. Flipping it while a
+  session is answering moves that session over to the other mode at once,
+  without picking it again, and threads still waiting are asked again there.
+
 - **Open a comparison or a commit from the command line.** `--range <a>...<b>`
   opens what `<b>` changed since it left `<a>`, as Compare does; `..` means the
   same, and an empty end is HEAD. `--base <ref>` is `--range <ref>...HEAD`,

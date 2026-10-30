@@ -185,6 +185,29 @@ test('a connected session answers each comment in its thread, and the page sees 
   await until(() => events.some(e => e.event === 'answerer' && e.data === null));
 });
 
+test('connecting again with the other mode moves the answers between a copy and the session itself', async t => {
+  const argsFile = path.join(await fs.mkdtemp(path.join(os.tmpdir(), 'reviewer-args-')), 'args.jsonl');
+  const { post, repoId, repoPath, reviewsDir } = await setup(t, { spawnEnv: { FAKE_CLAUDE_ARGS: argsFile } });
+
+  const copy = await post('agent/connect', { repoId, sessionId: SESSION, fork: true });
+  assert.equal(copy.body.answerer.forked, true);
+
+  // The page's switch: the same session, reconnected in the other mode.
+  const itself = await post('agent/connect', { repoId, sessionId: SESSION, fork: false });
+  assert.equal(itself.status, 200);
+  assert.equal(itself.body.answerer.forked, false);
+  assert.equal(itself.body.answerer.session, SESSION);
+
+  await post('save-comments', { repoId, comments: [{ key: 'k1', file: 'cart.js', line: 1, text: 'Why 2?' }] });
+  const answered = async () => (await readSavedComments(reviewsDir, repoPath)).comments[0].followUps?.find(f => f.by === 'claude');
+  await until(answered);
+
+  const runs = (await fs.readFile(argsFile, 'utf-8')).trim().split('\n').map(line => JSON.parse(line));
+  const last = runs[runs.length - 1];
+  assert.equal(last[last.indexOf('--resume') + 1], SESSION, 'it resumes the session itself');
+  assert.ok(!last.includes('--fork-session'), 'and does not copy it');
+});
+
 test('a background session that cannot answer reports why on the feed', async t => {
   const { feed, post, repoId } = await setup(t, { spawnEnv: { FAKE_CLAUDE_FAIL: '1' } });
   const { events } = await feed();

@@ -3,7 +3,7 @@
 [![CI](https://github.com/dheerajjha/reviewer/actions/workflows/ci.yml/badge.svg)](https://github.com/dheerajjha/reviewer/actions/workflows/ci.yml)
 [![License: MIT](https://img.shields.io/badge/license-MIT-blue.svg)](LICENSE)
 [![Node](https://img.shields.io/badge/node-%3E%3D18-brightgreen.svg)](package.json)
-[![Tests](https://img.shields.io/badge/tests-530-brightgreen.svg)](test/)
+[![Tests](https://img.shields.io/badge/tests-531-brightgreen.svg)](test/)
 [![Dependencies](https://img.shields.io/badge/dependencies-3-brightgreen.svg)](package.json)
 
 **English** · [简体中文](docs/README.zh-CN.md) · [日本語](docs/README.ja.md)
@@ -448,6 +448,13 @@ session is resumed in the background as a copy, so the original transcript
 is left exactly as it was. The copy can read the repository and nothing else:
 no edits, no shell, none of your MCP servers.
 
+Turn off **Answer in a copy of the session** to have the answers go into the
+session itself instead, so the next time you resume it they are part of its
+history. The page remembers the choice, and flipping it while a session is
+answering moves it over at once, without picking the session again. A terminal
+that already has the session open won't see those answers until it is resumed;
+to watch them arrive there, connect it live, as below.
+
 **Live, in your terminal.** To have the session itself answer, the one you
 can watch and step into, connect it:
 
@@ -570,7 +577,7 @@ rather than a public issue.
 
 ```bash
 npm install           # 3 dependencies, no build step, ~6MB
-npm test              # 530 tests
+npm test              # 531 tests
 npm run test:watch
 npm run test:coverage
 ```
