@@ -16,6 +16,7 @@ test('parseArgs defaults to serving, with no repository and an automatic browser
     open: true,
     noIntro: false,
     staged: false,
+    scope: null,
     untracked: true,
     json: false,
     format: 'json',
@@ -253,4 +254,61 @@ test('usage is written in terms of the name it is given', () => {
 
 test('usage says why --help under git opens a man page', () => {
   assert.match(USAGE, /git reviewer --help opens the\s+manual page/);
+});
+
+test('parseArgs reads --range with either separator, as a flag or inline', () => {
+  for (const [args, scope] of [
+    [['--range', 'main...HEAD'], { flag: '--range', base: 'main', head: 'HEAD' }],
+    [['--range', 'HEAD~5..HEAD'], { flag: '--range', base: 'HEAD~5', head: 'HEAD' }],
+    [['--range=origin/main...feature/auth'], { flag: '--range', base: 'origin/main', head: 'feature/auth' }]
+  ]) {
+    assert.deepEqual(parseArgs(args, CWD).scope, scope, args.join(' '));
+  }
+});
+
+test('parseArgs takes an empty end of a --range as HEAD, as git does', () => {
+  assert.deepEqual(parseArgs(['--range', 'origin/main...'], CWD).scope, { flag: '--range', base: 'origin/main', head: 'HEAD' });
+  assert.deepEqual(parseArgs(['--range', '..feature'], CWD).scope, { flag: '--range', base: 'HEAD', head: 'feature' });
+});
+
+test('parseArgs rejects a --range without two ends', () => {
+  assert.throws(() => parseArgs(['--range', 'main'], CWD), /two ends joined by \.\.\. or \.\./);
+  assert.throws(() => parseArgs(['--range', '...'], CWD), /at least one end/);
+  assert.throws(() => parseArgs(['--range'], CWD), /--range needs a range/);
+  assert.throws(() => parseArgs(['--range', '--no-open'], CWD), /--range needs a range/);
+});
+
+test('parseArgs reads --base, --commit and --last-commit', () => {
+  assert.deepEqual(parseArgs(['--base', 'origin/main'], CWD).scope, { flag: '--base', base: 'origin/main', head: 'HEAD' });
+  assert.deepEqual(parseArgs(['--base=origin/main'], CWD).scope, { flag: '--base', base: 'origin/main', head: 'HEAD' });
+  assert.deepEqual(parseArgs(['--commit', '06d0837'], CWD).scope, { flag: '--commit', commit: '06d0837' });
+  assert.deepEqual(parseArgs(['--commit=06d0837'], CWD).scope, { flag: '--commit', commit: '06d0837' });
+  assert.deepEqual(parseArgs(['--last-commit'], CWD).scope, { flag: '--last-commit', commit: 'HEAD' });
+  assert.throws(() => parseArgs(['--commit'], CWD), /--commit needs a commit to review/);
+  assert.throws(() => parseArgs(['--base'], CWD), /--base needs a branch, tag or commit/);
+});
+
+test('parseArgs takes one of --range, --base, --commit, --last-commit and --staged', () => {
+  assert.throws(() => parseArgs(['--base', 'main', '--commit', 'abc'], CWD), /--base and --commit each choose what to review/);
+  assert.throws(() => parseArgs(['--last-commit', '--range', 'a...b'], CWD), /--last-commit and --range each choose/);
+  assert.throws(() => parseArgs(['--staged', '--base', 'main'], CWD), /--staged and --base each choose/);
+  assert.throws(() => parseArgs(['--commit', 'a', '--commit', 'b'], CWD), /--commit can only be given once/);
+});
+
+test('parseArgs takes the scope flags only when serving a review', () => {
+  assert.throws(() => parseArgs(['export', '--base', 'main'], CWD), /--base is only valid when serving a review/);
+});
+
+test('buildUrl carries a comparison or a commit, with slashes left readable', () => {
+  const range = new URL(buildUrl('http://127.0.0.1:4500', '/work/api', false, false, true, { base: 'origin/main', head: 'feature/a b' }));
+  assert.equal(range.searchParams.get('base'), 'origin/main');
+  assert.equal(range.searchParams.get('head'), 'feature/a b');
+  assert.match(range.href, /base=origin\/main/);
+
+  const branch = new URL(buildUrl('http://127.0.0.1:4500', '/work/api', false, false, true, { base: 'main', head: 'HEAD' }));
+  assert.equal(branch.searchParams.get('head'), null, 'HEAD is what the page assumes, so the link leaves it out');
+
+  const commit = new URL(buildUrl('http://127.0.0.1:4500', '/work/api', false, false, true, { commit: '06d0837' }));
+  assert.equal(commit.searchParams.get('commit'), '06d0837');
+  assert.equal(commit.searchParams.get('base'), null);
 });

@@ -11,7 +11,7 @@ const { openInBrowser } = require('../lib/browser');
 const { formatPrompt } = require('../lib/agent');
 const { ReviewOwnershipError } = require('../lib/store');
 const { reviewsDir, adoptLegacyReviews } = require('../lib/paths');
-const { repoRoot } = require('../lib/repo');
+const { repoRoot, resolvesToCommit } = require('../lib/repo');
 const {
   loadReviewDocument,
   NoReviewError,
@@ -33,6 +33,45 @@ const { resolveClaudeCommand } = require('../lib/claude-command');
 const NAME = invokedAs(process.env, process.argv[1]);
 
 /** An expected export failure that needs no usage text. */
+/**
+ * A comparison or commit named on the command line that the repository
+ * cannot open. Said in one line, like ExportError: usage text would bury it.
+ */
+class ScopeError extends Error {
+  constructor(message) {
+    super(message);
+    this.name = 'ScopeError';
+  }
+}
+
+/**
+ * Check that every end of a --range, --base, --commit or --last-commit names
+ * a commit, before the server starts. The server would refuse a bad one too,
+ * but its error would land on a page that has only just opened, while the
+ * person who typed the ref is still looking at the terminal.
+ *
+ * @param {string|null} repoPath the repository about to be opened
+ * @param {{flag: string, base?: string, head?: string, commit?: string}} scope
+ */
+async function checkScope(repoPath, scope) {
+  const root = repoPath ? await repoRoot(repoPath) : null;
+  if (!root) {
+    throw new ScopeError(`${scope.flag} needs a git repository, and ${repoPath ?? process.cwd()} is not inside one.`);
+  }
+  if (scope.flag === '--last-commit') {
+    if (!(await resolvesToCommit(root, 'HEAD'))) throw new ScopeError(`--last-commit: ${root} has no commits yet.`);
+    return;
+  }
+  const ends = scope.commit !== undefined
+    ? [['', scope.commit]]
+    : [['the base ', scope.base], ['the head ', scope.head]];
+  for (const [which, ref] of ends) {
+    if (!(await resolvesToCommit(root, ref))) {
+      throw new ScopeError(`${scope.flag}: ${which}"${ref}" is not a commit in ${root}.`);
+    }
+  }
+}
+
 class ExportError extends Error {
   constructor(message) {
     super(message);
@@ -430,6 +469,7 @@ async function main() {
   if (options.command === 'watch') return watchCommand(options);
 
   const repoPath = await repositoryToOpen(options.repoPath);
+  if (options.scope) await checkScope(repoPath, options.scope);
 
   // Is anything reading our stdout? If so, the review goes there when it is
   // submitted and the command finishes -- which is what turns the whole loop
@@ -526,7 +566,8 @@ async function main() {
     repoPath,
     options.staged,
     options.noIntro,
-    options.untracked
+    options.untracked,
+    options.scope
   );
 
   if (options.json) {
@@ -558,7 +599,7 @@ async function main() {
 }
 
 main().catch(error => {
-  if (error instanceof ExportError) {
+  if (error instanceof ExportError || error instanceof ScopeError) {
     console.error(`error: ${error.message}`);
     process.exit(2);
   }

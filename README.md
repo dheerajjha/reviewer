@@ -3,7 +3,7 @@
 [![CI](https://github.com/dheerajjha/reviewer/actions/workflows/ci.yml/badge.svg)](https://github.com/dheerajjha/reviewer/actions/workflows/ci.yml)
 [![License: MIT](https://img.shields.io/badge/license-MIT-blue.svg)](LICENSE)
 [![Node](https://img.shields.io/badge/node-%3E%3D18-brightgreen.svg)](package.json)
-[![Tests](https://img.shields.io/badge/tests-516-brightgreen.svg)](test/)
+[![Tests](https://img.shields.io/badge/tests-530-brightgreen.svg)](test/)
 [![Dependencies](https://img.shields.io/badge/dependencies-3-brightgreen.svg)](package.json)
 
 **English** · [简体中文](docs/README.zh-CN.md) · [日本語](docs/README.ja.md)
@@ -218,6 +218,21 @@ An empty comparison explains itself rather than showing a blank list. Two
 commits that add a file and then delete it produce no diff between the ends —
 correctly — and that reads as *"2 commits undo each other"*, not as *"nothing
 to review"*.
+
+#### From the command line
+
+The same views open straight from the terminal, so a script or an agent can
+ask for them too:
+
+```bash
+git reviewer --base origin/main      # the whole branch, as its pull request shows it
+git reviewer --range HEAD~5..HEAD    # the last five commits (.. and ... mean the same here)
+git reviewer --commit 06d0837        # one commit, as clicking it in the list does
+git reviewer --last-commit           # the commit you just made
+```
+
+A ref that doesn't name a commit fails in the terminal before anything opens.
+The URL each one opens is also a link to that view.
 
 #### Reviewing commit by commit
 
@@ -555,7 +570,7 @@ rather than a public issue.
 
 ```bash
 npm install           # 3 dependencies, no build step, ~6MB
-npm test              # 516 tests
+npm test              # 530 tests
 npm run test:watch
 npm run test:coverage
 ```

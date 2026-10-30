@@ -690,7 +690,7 @@ function renderScope(data) {
       const outer = commitContext.range;
       label.append(' in ', strong(displayRef(outer.baseName ?? outer.base)), ' \u2192 ',
         strong(displayRef(outer.headName ?? outer.head)));
-    } else if (branch) {
+    } else if (branch && !commitContext?.offBranch) {
       label.append(' on ', strong(branch));
     }
 
@@ -909,6 +909,21 @@ async function refreshCommitContext(data, scope) {
     return;
   }
 
+  // Opened straight into a commit, by --commit, --last-commit or a shared
+  // link, with no list to have narrowed from. Show it in the branch's history,
+  // as "last commit" does, when the branch has it; otherwise in the commit's
+  // own history, without claiming a branch it may not be on.
+  if (scope.commits && data.mode === 'range' && data.range?.kind === 'commits') {
+    const branchHistory = await fetchCommitContext(data.repoId, 'history', { head: 'HEAD' });
+    const onBranch = branchHistory?.commits?.some(commit => commit.sha === data.range.last);
+    commitContext = onBranch ? branchHistory
+      : await fetchCommitContext(data.repoId, 'history', { head: data.range.last });
+    if (commitContext && !onBranch) commitContext.offBranch = true;
+    commitSelection = { from: data.range.first, to: data.range.last };
+    commitAnchor = data.range.last;
+    return;
+  }
+
   commitAnchor = null;
   commitSelection = null;
 
@@ -1055,6 +1070,25 @@ function showEmptyFileList(message) {
   empty.className = 'files-empty';
   empty.textContent = message;
   filesList.replaceChildren(empty);
+}
+
+/**
+ * What the page's URL asks it to open, in the form `loadRepo` takes.
+ *
+ * `commit=` is one commit, as clicking it in the commit list reviews it.
+ * `base=` (and `head=`, HEAD when absent) is a comparison, from where the two
+ * diverged. Neither means the default: the uncommitted changes.
+ *
+ * @param {string} search window.location.search
+ * @returns {{base?: string, head?: string, commits?: {from: string, to: string}}}
+ */
+function scopeFromSearch(search) {
+  const params = new URLSearchParams(search || '');
+  const commit = params.get('commit');
+  if (commit) return { commits: { from: commit, to: commit } };
+  const base = params.get('base');
+  if (base) return { base, head: params.get('head') || 'HEAD' };
+  return {};
 }
 
 /**
@@ -3629,14 +3663,16 @@ document.addEventListener('DOMContentLoaded', () => {
   });
 
   // `reviewer /path/to/repo` opens the page with the repository in the query
-  // string, so the review is on screen without anyone typing a path.
+  // string, so the review is on screen without anyone typing a path. --range,
+  // --base, --commit and --last-commit add what to open, so that is on screen
+  // too, and the URL is a link to the same view.
   const requestedRepo = new URLSearchParams(window.location.search).get('repo');
   if (requestedRepo) {
     document.getElementById('repoPath').value = requestedRepo;
     // Hidden before the request goes out, so the picker does not flash up for
     // the fraction of a second it takes to load a repository that was named.
     hidePicker();
-    loadRepo();
+    loadRepo(scopeFromSearch(window.location.search));
   } else {
     showPicker();
   }

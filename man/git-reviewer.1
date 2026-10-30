@@ -109,6 +109,39 @@ in the URL.
 Review only staged changes, comparing HEAD with the index. Unstaged edits are
 excluded, and an empty index comparison does not fall back to the last commit.
 .TP
+.BI \-\-range " base" ... head
+Open a comparison instead of the uncommitted changes: what
+.I head
+changed since it left
+.IR base ,
+as its pull request shows it, with the pickers set as if
+.B Compare branches
+had chosen it.
+.B ..
+means the same as
+.B ...
+here, and an empty end is HEAD, so
+.B \-\-range origin/main...
+compares the current branch with origin/main.
+.TP
+.BI \-\-base " ref"
+The same as
+.BI \-\-range " ref" ...HEAD:
+the whole branch.
+.TP
+.BI \-\-commit " rev"
+Open one commit, as clicking it in the commit list does.
+.TP
+.B \-\-last\-commit
+Open HEAD on its own.
+.PP
+.RS
+These four are exclusive with each other and with
+.BR \-\-staged .
+A ref that does not name a commit fails in the terminal before anything is
+served. The URL each one opens can be shared.
+.RE
+.TP
 .B \-\-no\-untracked
 Exclude untracked files from working directory reviews. Tracked changes remain
 reviewable. This option is only valid when serving a review.

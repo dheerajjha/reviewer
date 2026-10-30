@@ -152,6 +152,41 @@ test('a repository path that does not exist exits 2', async () => {
   assert.match(stderr, /No such directory/);
 });
 
+test('a --commit that does not resolve exits 2 in the terminal, before anything is served', async t => {
+  const repoPath = await createTempRepo();
+  t.after(() => cleanup(repoPath));
+  await commitFiles(repoPath, { 'a.txt': 'a\n' }, 'first');
+
+  const { code, stdout, stderr } = await run([repoPath, '--commit', 'nosuch', '--no-open']);
+
+  assert.equal(code, 2);
+  assert.equal(stdout, '');
+  assert.equal(stderr, `error: --commit: "nosuch" is not a commit in ${repoPath}.\n`);
+});
+
+test('--last-commit in a repository with no commits says so in one line', async t => {
+  const repoPath = await createTempRepo();
+  t.after(() => cleanup(repoPath));
+
+  const { code, stderr } = await run([repoPath, '--last-commit', '--no-open']);
+
+  assert.equal(code, 2);
+  assert.equal(stderr, `error: --last-commit: ${repoPath} has no commits yet.\n`);
+});
+
+test('--base opens the page on the comparison', async t => {
+  const repoPath = await createTempRepo();
+  t.after(() => cleanup(repoPath));
+  await commitFiles(repoPath, { 'a.txt': 'a\n' }, 'first');
+
+  const { url, child } = await serve([repoPath, '--base', 'main']);
+  t.after(() => child.kill('SIGKILL'));
+
+  const address = new URL(url);
+  assert.equal(address.searchParams.get('repo'), repoPath);
+  assert.equal(address.searchParams.get('base'), 'main');
+});
+
 test('export refuses when the repository has no saved review', async t => {
   const repoPath = await createTempRepo();
   t.after(() => cleanup(repoPath));

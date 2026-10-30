@@ -6,6 +6,16 @@ adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
 ## [Unreleased]
 
+### Added
+
+- **Open a comparison or a commit from the command line.** `--range <a>...<b>`
+  opens what `<b>` changed since it left `<a>`, as Compare does; `..` means the
+  same, and an empty end is HEAD. `--base <ref>` is `--range <ref>...HEAD`,
+  `--commit <rev>` opens one commit and `--last-commit` opens HEAD. A ref that
+  doesn't resolve fails in the terminal before the server starts, and the URL
+  carries the view, so it can be shared
+  ([#6](https://github.com/dheerajjha/reviewer/issues/6)).
+
 ## [2.17.1] - 2026-10-30
 
 Two fixes from contributors: `reviewer export` errors you can read, and the
