@@ -6,14 +6,21 @@ adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
 ## [Unreleased]
 
+## [2.17.1] - 2026-10-30
+
+Two fixes from contributors: `reviewer export` errors you can read, and the
+right default base when you compare a fork.
+
 ### Fixed
 
 - Expected `reviewer export` failures print only the error line and still exit
   with code 2. Missing-review errors include the data directory searched; invalid
-  flags and missing flag values still print usage help.
+  flags and missing flag values still print usage help
+  ([#127](https://github.com/dheerajjha/reviewer/pull/127), from @anthony95macias).
 - Compare now prefers a fork's `upstream` default branch, then the default branch
   recorded by `origin/HEAD`, before falling back to the familiar branch names.
-  Repositories without a recorded remote HEAD keep the fallback behavior.
+  A fork whose `upstream` has no recorded HEAD still gets `upstream/main` or
+  `upstream/master` ([#126](https://github.com/dheerajjha/reviewer/pull/126), from @Aaqibhafeezkhan).
 
 ## [2.17.0] - 2026-10-24
 
@@ -938,7 +945,8 @@ Initial release: Electron desktop app and web mode for reviewing local git
 changes with inline comments, threaded follow-ups, persistent storage, and a
 GitHub-style diff view.
 
-[Unreleased]: https://github.com/dheerajjha/reviewer/compare/v2.17.0...HEAD
+[Unreleased]: https://github.com/dheerajjha/reviewer/compare/v2.17.1...HEAD
+[2.17.1]: https://github.com/dheerajjha/reviewer/compare/v2.17.0...v2.17.1
 [2.17.0]: https://github.com/dheerajjha/reviewer/compare/v2.16.0...v2.17.0
 [2.16.0]: https://github.com/dheerajjha/reviewer/compare/v2.15.0...v2.16.0
 [2.15.0]: https://github.com/dheerajjha/reviewer/compare/v2.14.1...v2.15.0
