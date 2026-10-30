@@ -6,6 +6,11 @@ adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
 ## [Unreleased]
 
+## [2.18.0] - 2026-10-30
+
+Open a comparison or a commit straight from the command line, and choose
+whether Claude Code answers in a copy of its session or in the session itself.
+
 ### Added
 
 - **Answer in the session itself, with a switch.** The Ask Claude Code dialog's
@@ -13,7 +18,6 @@ adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
   off and the answers go into the session's own history. Flipping it while a
   session is answering moves that session over to the other mode at once,
   without picking it again, and threads still waiting are asked again there.
-
 - **Open a comparison or a commit from the command line.** `--range <a>...<b>`
   opens what `<b>` changed since it left `<a>`, as Compare does; `..` means the
   same, and an empty end is HEAD. `--base <ref>` is `--range <ref>...HEAD`,
@@ -961,7 +965,8 @@ Initial release: Electron desktop app and web mode for reviewing local git
 changes with inline comments, threaded follow-ups, persistent storage, and a
 GitHub-style diff view.
 
-[Unreleased]: https://github.com/dheerajjha/reviewer/compare/v2.17.1...HEAD
+[Unreleased]: https://github.com/dheerajjha/reviewer/compare/v2.18.0...HEAD
+[2.18.0]: https://github.com/dheerajjha/reviewer/compare/v2.17.1...v2.18.0
 [2.17.1]: https://github.com/dheerajjha/reviewer/compare/v2.17.0...v2.17.1
 [2.17.0]: https://github.com/dheerajjha/reviewer/compare/v2.16.0...v2.17.0
 [2.16.0]: https://github.com/dheerajjha/reviewer/compare/v2.15.0...v2.16.0
