@@ -6,6 +6,11 @@ adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
 ## [Unreleased]
 
+### Fixed
+
+- Quote comment bodies and follow-ups in prompt exports so headings inside
+  them cannot create forged file or comment sections.
+
 ## [2.18.0] - 2026-10-30
 
 Open a comparison or a commit straight from the command line, and choose
