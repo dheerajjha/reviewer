@@ -60,7 +60,7 @@ test('a saved review is returned as a code-review/v1 document', async () => {
   await cleanup(repo);
 });
 
-test('the commit and branch of the working tree are recorded', async () => {
+test('the branch is recorded while legacy reviews have an unknown baseline', async () => {
   const dir = await reviewsDir();
   const repo = await createTempRepo();
   await writeFiles(repo, { 'src/auth.js': 'let a\n' });
@@ -69,7 +69,7 @@ test('the commit and branch of the working tree are recorded', async () => {
 
   const document = await loadReviewDocument(dir, repo);
 
-  assert.match(document.repository.head, /^[0-9a-f]{40}$/);
+  assert.equal(document.repository.head, null);
   assert.equal(document.repository.branch, 'main');
 
   await cleanup(repo);
@@ -87,6 +87,30 @@ test('a directory git will not answer for still exports', async () => {
   assert.equal(document.repository.head, null);
   assert.equal(document.repository.branch, null);
   assert.equal(document.summary.comments, 1);
+});
+
+test('exports the saved review commit rather than the current HEAD', async () => {
+  const dir = await reviewsDir();
+  const repo = await createTempRepo();
+  await writeFiles(repo, { 'src/auth.js': 'before\n' });
+  await commitAll(repo, 'review baseline');
+  const { simpleGit } = require('simple-git');
+  const reviewedHead = (await simpleGit(repo).revparse(['HEAD'])).trim();
+  await fs.writeFile(
+    path.join(dir, commentsFilename(repo)),
+    JSON.stringify({ repoPath: repo, head: reviewedHead, comments: [COMMENT] })
+  );
+  await writeFiles(repo, { 'src/auth.js': 'after\n' });
+  await commitAll(repo, 'move HEAD after review');
+
+  const currentHead = (await simpleGit(repo).revparse(['HEAD'])).trim();
+  const document = await loadReviewDocument(dir, repo);
+
+  assert.notEqual(currentHead, reviewedHead);
+  assert.equal(document.repository.head, reviewedHead);
+
+  await cleanup(repo);
+  await cleanup(dir);
 });
 
 test('a repository that no longer exists on disk still exports', async () => {
@@ -286,6 +310,7 @@ test('a review file written before the mode was recorded still exports', async (
   const document = await loadReviewDocument(dir, repo);
 
   assert.equal(document.mode, null, 'nothing on disk says what was compared');
+  assert.equal(document.repository.head, null, 'older comment files have no recorded baseline');
   assert.doesNotMatch(formatPrompt(document), /working tree|against its parent/);
 
   await cleanup(repo);

@@ -942,6 +942,9 @@ function createApp(options = {}) {
       }
 
       const git = gitFactory(root);
+      // Pin HEAD when the review opens; subsequent saves must retain this
+      // baseline even if the repository moves before the review is exported.
+      const reviewHead = await git.revparse(['HEAD']).then(sha => sha.trim()).catch(() => null);
 
       let files;
       let mode;
@@ -1007,6 +1010,7 @@ function createApp(options = {}) {
       }
 
       const repoId = sessions.create(root, mode, range, untracked);
+      sessions.get(repoId).head = reviewHead;
       sessions.get(repoId).foldedDirectories = new Map(
         files.filter(file => file.directory).map(file => [file.path, file.fileCount])
       );
@@ -1163,7 +1167,14 @@ function createApp(options = {}) {
         // last heard from the server, and a whole-list save must not erase it.
         return {
           comments: keepFollowUpsFrom(incoming, current.comments),
-          scope: { mode: session.mode, range: session.range, untracked: session.untracked }
+          // The baseline is immutable after the first comment save. A legacy
+          // review with comments but no baseline remains unknown.
+          scope: {
+            mode: session.mode,
+            range: session.range,
+            untracked: session.untracked,
+            head: current.comments.length === 0 ? session.head ?? null : current.head ?? null
+          }
         };
       });
 
@@ -1208,7 +1219,7 @@ function createApp(options = {}) {
 
       // The JSON file is the source of truth, not whatever the client holds:
       // submitting renders exactly what was last saved.
-      const { comments } = await readSavedComments(reviewsDir, session.repoPath);
+      const { comments, head: savedHead } = await readSavedComments(reviewsDir, session.repoPath);
 
       if (comments.length === 0) {
         return res.status(400).json({
@@ -1219,10 +1230,10 @@ function createApp(options = {}) {
       const generatedAt = new Date();
       const filename = reviewFilename(session.repoPath, generatedAt);
 
-      // The commit is worth recording for anything acting on the review later:
-      // it is how a consumer tells whether the tree has moved on since.
+      // Use the saved baseline, not live HEAD: reading it here would make
+      // every export appear fresh even after the repository has moved on.
       const git = gitFactory(session.repoPath);
-      const head = await git.revparse(['HEAD']).then(sha => sha.trim()).catch(() => null);
+      const head = savedHead ?? null;
       const branch = await git.revparse(['--abbrev-ref', 'HEAD']).then(name => name.trim()).catch(() => null);
 
       const document = buildReviewDocument({
