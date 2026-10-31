@@ -322,6 +322,46 @@ test('a tracked-only review retains its scope through save, submit, reload and l
   assert.doesNotMatch(reset.reviewContent, /Untracked files are excluded/);
 });
 
+test('saved comments retain the HEAD from when the review was opened', async t => {
+  const server = await startTestServer();
+  const repoPath = await createTempRepo();
+  t.after(async () => { await server.close(); await cleanup(repoPath); });
+  await commitFiles(repoPath, { 'app.js': 'before\n' }, 'initial');
+  const reviewedHead = (await simpleGit(repoPath).revparse(['HEAD'])).trim();
+  await writeFiles(repoPath, { 'app.js': 'reviewed change\n' });
+
+  const opened = await loadRepo(server.url, repoPath);
+  const response = await fetch(`${server.url}/api/save-comments`, {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({
+      repoId: opened.repoId,
+      comments: [{ file: 'app.js', line: 1, lineContent: 'reviewed change', text: 'Review this line.' }]
+    })
+  });
+  assert.equal(response.status, 200);
+
+  const savedPath = path.join(server.reviewsDir, commentsFilename(repoPath));
+  const saved = JSON.parse(await fs.readFile(savedPath, 'utf8'));
+  assert.equal(saved.head, reviewedHead);
+
+  await commitFiles(repoPath, { 'app.js': 'changed after review\n' }, 'move HEAD after review');
+  const currentHead = (await simpleGit(repoPath).revparse(['HEAD'])).trim();
+  assert.notEqual(currentHead, reviewedHead);
+
+  const submittedResponse = await fetch(`${server.url}/api/submit-review`, {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ repoId: opened.repoId })
+  });
+  assert.equal(submittedResponse.status, 200);
+  const submitted = await submittedResponse.json();
+  const stored = JSON.parse(await fs.readFile(path.join(server.reviewsDir, submitted.documentFilename), 'utf8'));
+  assert.equal(stored.repository.head, reviewedHead);
+  assert.notEqual(stored.repository.head, currentHead);
+  assert.equal((await loadReviewDocument(server.reviewsDir, repoPath)).repository.head, reviewedHead);
+});
+
 test('the untracked option preserves staged and commit comparison scopes', async t => {
   const server = await startTestServer();
   const repoPath = await createTempRepo();

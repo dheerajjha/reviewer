@@ -78,7 +78,7 @@ Markdown that has to be parsed back out of prose.
 | `generatedAt` | ISO 8601, when the document was produced. |
 | `repository.path` | Absolute path of the reviewed repository. |
 | `repository.name` | Directory name, sanitized for use in filenames. |
-| `repository.head` | The commit the working tree was on **when this document was produced** — not when the review was written. `null` if git would not say. See the note below before using it to detect staleness. |
+| `repository.head` | The commit captured when the review session opened and persisted with its first saved comments. Compare it with current `HEAD` to detect whether the repository has moved since the review. `null` means the baseline is unknown (including reviews saved by older versions), not that the review is fresh. |
 | `repository.branch` | Branch name, or `null`. |
 | `mode` | `working` (working tree vs `HEAD`), `staged` (index vs `HEAD`, excluding unstaged edits), `lastCommit` (`HEAD` vs its parent), `range` (two refs the reviewer chose), or `null` for a review saved before the mode was recorded. It is stored with the review, so `reviewer export` reports the same value the browser did &mdash; it no longer goes `null` simply because there is no session. For `staged`, this names the comparison; saved comments remain shared between views and may refer to other code. |
 | `range` | For a `range` review: `{ base, head, from, commits, behind, baseName, headName }`. `base` and `head` are full SHAs of the two ends, resolved once when the review was opened; `baseName` and `headName` are what the reviewer chose (`main`, `feature/auth`, `HEAD~5`). **The diff runs from `from`, the merge base, not from `base`** &mdash; what a pull request shows &mdash; so work on `base` since the two diverged is not in it. `commits` is how many commits the reviewed side has; `behind` is how many the base has that were left out. **Omitted** entirely when there is no range, so `"range" in document` is a meaningful test. Reviews saved by 2.10 and 2.11 carry only `{ base, head, commits }`. A review of commits picked from the commits list has `kind: "commits"` and `first`/`last` instead: both ends are **in** the review, the diff runs from the parent of `first` (the empty tree for a root commit), and a single commit carries its `subject`. |
@@ -99,13 +99,13 @@ files were first commented on, and ordered by line within a file.
 
 ## Notes for consumers
 
-- **Do not use `repository.head` to detect staleness — it cannot work yet.**
-  It is read from the working tree at the moment the document is produced, not
-  recorded when the review was written, so comparing it against the current
-  `HEAD` compares a value with itself and always agrees. This document
-  previously told you to make exactly that comparison; that advice was wrong.
-  Tracked as [#32](https://github.com/dheerajjha/reviewer/issues/32), which has
-  to change the stored format to fix.
+- **Use `repository.head` to detect staleness only when it is non-null.**
+  It is captured when the review session opens, persisted with the first
+  comment save, and retained across later edits and exports. Compare it with the repository's current
+  `HEAD`; a difference means the tree has moved since the review was written.
+  A missing value (`null`) means the review predates this field or no commit
+  could be read when it was saved, so its freshness is unknown. Do not treat
+  `null` as fresh.
 - **When `range.from` differs from `range.base`, the two ends had diverged.**
   Code on the base that differs from the head, in files the review did not
   cover, is the base's own newer work — `range.behind` commits of it. It is not

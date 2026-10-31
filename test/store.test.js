@@ -44,6 +44,19 @@ test('comments are read back for the repository that saved them', async () => {
   assert.equal(adopted, false);
 });
 
+test('the saved review head is read back, while older files remain unknown', async () => {
+  const dir = await reviewsDir();
+  await write(dir, commentsFilename('/work/known'), {
+    repoPath: '/work/known', head: 'a'.repeat(40), comments: [COMMENT]
+  });
+  await write(dir, commentsFilename('/work/legacy'), {
+    repoPath: '/work/legacy', comments: [COMMENT]
+  });
+
+  assert.equal((await readSavedComments(dir, '/work/known')).head, 'a'.repeat(40));
+  assert.equal((await readSavedComments(dir, '/work/legacy')).head, undefined);
+});
+
 test('the lastUpdated stamp is read back, as the version token for a conditional save', async () => {
   const dir = await reviewsDir();
   await write(dir, commentsFilename('/work/api'), {
@@ -180,7 +193,7 @@ test('an update writes keyed comments with a strictly later stamp, and null writ
   const dir = await reviewsDir();
   t.after(() => fs.rm(dir, { recursive: true, force: true }));
   await write(dir, commentsFilename('/work/api'), {
-    repoPath: '/work/api', lastUpdated: '2026-10-24T00:00:00.000Z', mode: 'working', comments: [COMMENT]
+    repoPath: '/work/api', lastUpdated: '2026-10-24T00:00:00.000Z', mode: 'working', head: 'a'.repeat(40), comments: [COMMENT]
   });
 
   const { comments: [current] } = await readSavedComments(dir, '/work/api');
@@ -192,6 +205,7 @@ test('an update writes keyed comments with a strictly later stamp, and null writ
   const onDisk = JSON.parse(await fs.readFile(path.join(dir, commentsFilename('/work/api')), 'utf-8'));
   assert.equal(onDisk.comments[0].key, current.key, 'the derived key is what gets persisted');
   assert.equal(onDisk.mode, 'working', 'a reply leaves the review\'s scope alone');
+  assert.equal(onDisk.head, 'a'.repeat(40), 'a reply keeps the original review commit');
   assert.ok(onDisk.lastUpdated > '2026-10-24T00:00:00.000Z');
 
   const untouched = await updateSavedComments(dir, '/work/api', () => null);
