@@ -6,10 +6,22 @@ adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
 ## [Unreleased]
 
+## [2.18.1] - 2026-10-31
+
+Two fixes from contributors for the review an agent receives.
+
 ### Fixed
 
-- Quote comment bodies and follow-ups in prompt exports so headings inside
-  them cannot create forged file or comment sections.
+- **A comment can no longer forge a section of the prompt export.** Comment
+  bodies and follow-ups are quoted, every line, and the export tells the agent
+  they are data, so a `## path` inside a comment cannot pose as a file the
+  review covers ([#28](https://github.com/dheerajjha/reviewer/issues/28), [#133](https://github.com/dheerajjha/reviewer/pull/133), from @jay23606).
+- **`repository.head` is the commit the review was written against.** It used
+  to be read live at export time, so comparing it with the current `HEAD`, as
+  docs/agent-format.md suggested, could never show a stale review. It is now
+  captured when the review opens and fixed at its first saved comment. A review
+  saved before this exports `null`, meaning unknown
+  ([#32](https://github.com/dheerajjha/reviewer/issues/32), [#134](https://github.com/dheerajjha/reviewer/pull/134), from @Aaqibhafeezkhan).
 
 ## [2.18.0] - 2026-10-30
 
@@ -970,7 +982,8 @@ Initial release: Electron desktop app and web mode for reviewing local git
 changes with inline comments, threaded follow-ups, persistent storage, and a
 GitHub-style diff view.
 
-[Unreleased]: https://github.com/dheerajjha/reviewer/compare/v2.18.0...HEAD
+[Unreleased]: https://github.com/dheerajjha/reviewer/compare/v2.18.1...HEAD
+[2.18.1]: https://github.com/dheerajjha/reviewer/compare/v2.18.0...v2.18.1
 [2.18.0]: https://github.com/dheerajjha/reviewer/compare/v2.17.1...v2.18.0
 [2.17.1]: https://github.com/dheerajjha/reviewer/compare/v2.17.0...v2.17.1
 [2.17.0]: https://github.com/dheerajjha/reviewer/compare/v2.16.0...v2.17.0
