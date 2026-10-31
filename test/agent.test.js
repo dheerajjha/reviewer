@@ -280,7 +280,7 @@ test('formatPrompt fences an anchor that is itself a fence with a longer marker'
   assert.equal(marker, '````');
   assert.deepEqual(content, ['```']);
   assert.ok(
-    after.includes('Close the fence here.'),
+    after.includes('> Close the fence here.'),
     'the comment body must land outside the fenced anchor, not inside it'
   );
 });
@@ -301,7 +301,7 @@ test('formatPrompt fences a selection that is itself a fence with a longer marke
 
   assert.equal(marker, '````');
   assert.deepEqual(content, ['```']);
-  assert.ok(after.includes('Selection case.'));
+  assert.ok(after.includes('> Selection case.'));
 });
 
 test('formatPrompt keeps the next comment a heading when an anchor is a fence', () => {
