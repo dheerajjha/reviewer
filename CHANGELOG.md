@@ -6,6 +6,11 @@ adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
 ## [Unreleased]
 
+## [2.19.0] - 2026-11-01
+
+Ask any Claude Code session, including one started in a folder above the
+repository.
+
 ### Added
 
 - **Ask a session that started somewhere else.** The dialog behind **Ask
@@ -1008,7 +1013,8 @@ Initial release: Electron desktop app and web mode for reviewing local git
 changes with inline comments, threaded follow-ups, persistent storage, and a
 GitHub-style diff view.
 
-[Unreleased]: https://github.com/dheerajjha/reviewer/compare/v2.18.1...HEAD
+[Unreleased]: https://github.com/dheerajjha/reviewer/compare/v2.19.0...HEAD
+[2.19.0]: https://github.com/dheerajjha/reviewer/compare/v2.18.1...v2.19.0
 [2.18.1]: https://github.com/dheerajjha/reviewer/compare/v2.18.0...v2.18.1
 [2.18.0]: https://github.com/dheerajjha/reviewer/compare/v2.17.1...v2.18.0
 [2.17.1]: https://github.com/dheerajjha/reviewer/compare/v2.17.0...v2.17.1
