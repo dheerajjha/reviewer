@@ -168,7 +168,7 @@ test('a reader that stops early ends the listing quietly, not with a crash', { s
   const code = await new Promise(resolve => child.on('exit', resolve));
 
   assert.equal(code, 0, stderr);
-  assert.doesNotMatch(stderr, /EPIPE|Error/);
+  assert.doesNotMatch(stderr, /EPIPE|ENOTCONN|Error/);
 });
 
 test('connect --session takes a session from anywhere, and gives it the repository to read', { skip: process.platform === 'win32' && 'runs the fake claude as an executable' }, async t => {
