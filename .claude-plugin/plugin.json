@@ -1,6 +1,6 @@
 {
   "name": "git-reviewer",
-  "version": "2.18.1",
+  "version": "2.19.0",
   "description": "Review your agent's changes like a pull request, in your browser, without a branch or a push. Comment on lines, press Submit, and the agent gets the review.",
   "author": { "name": "Dheeraj Jha", "url": "https://github.com/dheerajjha" },
   "homepage": "https://github.com/dheerajjha/reviewer",
