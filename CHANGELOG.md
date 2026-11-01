@@ -6,6 +6,10 @@ adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
 ## [Unreleased]
 
+## [2.19.1] - 2026-11-01
+
+A listing piped into `head` no longer crashes.
+
 ### Fixed
 
 - **A command piped into something that stops reading no longer crashes.**
@@ -1021,7 +1025,8 @@ Initial release: Electron desktop app and web mode for reviewing local git
 changes with inline comments, threaded follow-ups, persistent storage, and a
 GitHub-style diff view.
 
-[Unreleased]: https://github.com/dheerajjha/reviewer/compare/v2.19.0...HEAD
+[Unreleased]: https://github.com/dheerajjha/reviewer/compare/v2.19.1...HEAD
+[2.19.1]: https://github.com/dheerajjha/reviewer/compare/v2.19.0...v2.19.1
 [2.19.0]: https://github.com/dheerajjha/reviewer/compare/v2.18.1...v2.19.0
 [2.18.1]: https://github.com/dheerajjha/reviewer/compare/v2.18.0...v2.18.1
 [2.18.0]: https://github.com/dheerajjha/reviewer/compare/v2.17.1...v2.18.0
