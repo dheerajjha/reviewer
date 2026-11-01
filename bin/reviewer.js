@@ -470,7 +470,20 @@ async function repositoryToOpen(given) {
   return repoRoot(process.cwd());
 }
 
+/** How a write to stdout says its reader has gone. */
+const READER_GONE = new Set(['EPIPE', 'ENOTCONN', 'ECONNRESET']);
+
 async function main() {
+  // Whoever was reading has stopped -- `reviewer connect --list --all | head`,
+  // say, once it has its ten lines. Node reports that as an error on the next
+  // write, which crashed with a stack trace; there is simply nobody left to
+  // tell anything, which is not a failure. EPIPE from a pipe; ENOTCONN or
+  // ECONNRESET when stdout is a socket, as Node makes a child's on macOS.
+  process.stdout.on('error', error => {
+    if (READER_GONE.has(error.code)) process.exit(0);
+    throw error;
+  });
+
   const options = parseArgs(process.argv.slice(2));
 
   // Reviews written by a version that kept them inside the package directory

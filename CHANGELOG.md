@@ -6,6 +6,14 @@ adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
 ## [Unreleased]
 
+### Fixed
+
+- **A command piped into something that stops reading no longer crashes.**
+  `reviewer connect --list --all | head`, and `export` or `watch` read the same
+  way, died with an unhandled `write EPIPE` stack trace (`ENOTCONN` when
+  stdout is a socket) once the reader had what it wanted. It now stops
+  quietly, with status 0.
+
 ## [2.19.0] - 2026-11-01
 
 Ask any Claude Code session, including one started in a folder above the

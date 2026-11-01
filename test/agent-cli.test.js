@@ -152,6 +152,25 @@ test('connect --list includes a session started in a folder above that worked he
   assert.match(all.stdout, new RegExp(`^${OTHER}  .*  Write the blog post  \\[.*${path.basename(elsewhere)}\\]$`, 'm'));
 });
 
+test('a reader that stops early ends the listing quietly, not with a crash', { skip: process.platform === 'win32' && 'POSIX pipes' }, async t => {
+  const { repoPath, configDir, env } = await setup(t);
+  // More than a pipe holds, so writes are still going when the reader leaves.
+  const prompt = n => `Session ${n}: ${'refactor the checkout flow and its tests '.repeat(6)}`;
+  for (let n = 0; n < 400; n += 1) {
+    await fileSessionIn(configDir, path.join(configDir, 'work', `p${n % 20}`), `00000000-0000-4000-8000-${String(n).padStart(12, '0')}`, prompt(n));
+  }
+
+  const child = spawn(process.execPath, [BIN, 'connect', repoPath, '--list', '--all'], { env, stdio: ['ignore', 'pipe', 'pipe'] });
+  let stderr = '';
+  child.stderr.setEncoding('utf-8');
+  child.stderr.on('data', chunk => { stderr += chunk; });
+  child.stdout.once('data', () => child.stdout.destroy()); // `| head`, more or less
+  const code = await new Promise(resolve => child.on('exit', resolve));
+
+  assert.equal(code, 0, stderr);
+  assert.doesNotMatch(stderr, /EPIPE|ENOTCONN|Error/);
+});
+
 test('connect --session takes a session from anywhere, and gives it the repository to read', { skip: process.platform === 'win32' && 'runs the fake claude as an executable' }, async t => {
   const { repoPath, configDir, run } = await setup(t);
   const elsewhere = await fs.realpath(await fs.mkdtemp(path.join(os.tmpdir(), 'reviewer-cli-elsewhere-')));
