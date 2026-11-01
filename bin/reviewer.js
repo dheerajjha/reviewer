@@ -471,6 +471,15 @@ async function repositoryToOpen(given) {
 }
 
 async function main() {
+  // Whoever was reading has stopped -- `reviewer connect --list --all | head`,
+  // say, once it has its ten lines. Node reports that as an EPIPE error on
+  // the next write, which crashed with a stack trace; there is simply nobody
+  // left to tell anything, which is not a failure.
+  process.stdout.on('error', error => {
+    if (error.code === 'EPIPE') process.exit(0);
+    throw error;
+  });
+
   const options = parseArgs(process.argv.slice(2));
 
   // Reviews written by a version that kept them inside the package directory
