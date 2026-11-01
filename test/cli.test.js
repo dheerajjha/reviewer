@@ -24,6 +24,7 @@ test('parseArgs defaults to serving, with no repository and an automatic browser
     session: null,
     fork: false,
     list: false,
+    all: false,
     key: null,
     text: null,
     textFromStdin: false,
@@ -311,4 +312,15 @@ test('buildUrl carries a comparison or a commit, with slashes left readable', ()
   const commit = new URL(buildUrl('http://127.0.0.1:4500', '/work/api', false, false, true, { commit: '06d0837' }));
   assert.equal(commit.searchParams.get('commit'), '06d0837');
   assert.equal(commit.searchParams.get('base'), null);
+});
+
+test('parseArgs reads connect --list --all, and --all only beside --list', () => {
+  const options = parseArgs(['connect', '--list', '--all'], CWD);
+  assert.equal(options.command, 'connect');
+  assert.equal(options.list, true);
+  assert.equal(options.all, true);
+
+  assert.throws(() => parseArgs(['connect', '--all'], CWD), /--all goes with --list/);
+  assert.throws(() => parseArgs(['--all'], CWD), /--all is only valid with reviewer connect/);
+  assert.throws(() => parseArgs(['export', '--list'], CWD), /--list is only valid with reviewer connect/);
 });

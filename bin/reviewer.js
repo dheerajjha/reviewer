@@ -24,7 +24,9 @@ const { watchComments } = require('../lib/watch');
 const { announce } = require('../lib/presence');
 const { mintKey } = require('../lib/comments');
 const { appendReply, awaitingAnswer, newReviewerMessages, describeThread, lastAuthor } = require('../lib/threads');
-const { listClaudeSessions } = require('../lib/claude-sessions');
+const {
+  findSessions, listClaudeSessions, findClaudeSession, sessionIdsStartingWith, relateToRepository, readsRepository
+} = require('../lib/claude-sessions');
 const { runChannel } = require('../lib/channel');
 const { resolveClaudeCommand } = require('../lib/claude-command');
 
@@ -186,6 +188,44 @@ function sessionLabel(session) {
 }
 
 /**
+ * Where a session started, against the repository, for a list: nothing at
+ * the root unless every session is listed, where it marks this repository's.
+ *
+ * @param {import('../lib/claude-sessions').RelatedSession} session
+ * @param {boolean} [all]
+ */
+function sessionPlace(session, all = false) {
+  switch (session.relation) {
+    case 'repo': return all ? 'this repository' : null;
+    case 'subfolder': return `in ${session.place}`;
+    case 'parent': return `${session.place}, ${session.above === 1 ? 'a folder' : `${session.above} folders`} above this repository`;
+    default: return session.place;
+  }
+}
+
+/**
+ * The session `--session` names: by the start of its id, this repository's
+ * first, then any session, wherever it ran.
+ *
+ * @param {string} repoPath
+ * @param {string} prefix
+ */
+async function sessionNamed(repoPath, prefix) {
+  const ambiguous = n => new UsageError(`${prefix} matches ${n} sessions; give more of the id.`);
+  const mine = (await listClaudeSessions(repoPath, { limit: Infinity })).filter(session => session.id.startsWith(prefix));
+  if (mine.length > 1) throw ambiguous(mine.length);
+  if (mine.length === 1) return mine[0];
+
+  const ids = await sessionIdsStartingWith(prefix);
+  if (ids.length > 1) throw ambiguous(ids.length);
+  const found = ids.length === 1 ? await findClaudeSession(ids[0]) : null;
+  if (!found) {
+    throw new UsageError(`No Claude Code session ${prefix} was found. ${NAME} connect --list --all shows every session.`);
+  }
+  return { ...found, ...relateToRepository(found, repoPath) };
+}
+
+/**
  * `reviewer connect`: open the Claude Code session that worked here, with
  * reviewer attached as a channel.
  *
@@ -199,31 +239,31 @@ function sessionLabel(session) {
  */
 async function connectCommand(options) {
   const repoPath = await requireRepository(options.repoPath);
-  const sessions = await listClaudeSessions(repoPath, { limit: 50 });
 
   if (options.list) {
+    const sessions = options.all
+      ? (await findSessions({ repoPath, scope: 'all', limit: Infinity })).sessions
+      : await listClaudeSessions(repoPath, { limit: 50 });
     if (sessions.length === 0) {
-      note(`No Claude Code session has worked in ${repoPath} yet.`);
+      note(options.all
+        ? 'Claude Code has no sessions on this machine yet.'
+        : `No Claude Code session has worked in ${repoPath} yet. ${NAME} connect --list --all shows every session.`);
       return;
     }
     for (const session of sessions) {
-      process.stdout.write(`${session.id}  ${session.updatedAt.slice(0, 16).replace('T', ' ')}  ${sessionLabel(session)}\n`);
+      const place = sessionPlace(session, options.all);
+      process.stdout.write(`${session.id}  ${session.updatedAt.slice(0, 16).replace('T', ' ')}  ${sessionLabel(session)}${place ? `  [${place}]` : ''}\n`);
     }
     return;
   }
 
   let chosen = null;
   if (options.session) {
-    const matches = sessions.filter(session => session.id.startsWith(options.session));
-    if (matches.length !== 1) {
-      throw new UsageError(matches.length === 0
-        ? `No Claude Code session ${options.session} has worked in ${repoPath}. ${NAME} connect --list shows them.`
-        : `${options.session} matches ${matches.length} sessions; give more of the id.`);
-    }
-    [chosen] = matches;
+    chosen = await sessionNamed(repoPath, options.session);
   } else {
     // The most recent session that is not one of reviewer's own copies:
     // asking a copy made to answer an earlier review is asking second-hand.
+    const sessions = await listClaudeSessions(repoPath, { limit: 50 });
     chosen = sessions.find(session => !session.title?.startsWith('Review answers:')) ?? sessions[0] ?? null;
   }
 
@@ -240,12 +280,16 @@ async function connectCommand(options) {
   const args = [
     ...(chosen ? ['--resume', chosen.id] : []),
     ...(chosen && options.fork ? ['--fork-session'] : []),
+    // Started inside the repository or away from it, the session is given it
+    // to read; it would otherwise have to ask for every file.
+    ...(chosen && !readsRepository(chosen.relation) ? ['--add-dir', repoPath] : []),
     '--mcp-config', JSON.stringify(mcpConfig),
     '--dangerously-load-development-channels', 'server:reviewer'
   ];
 
+  const place = chosen ? sessionPlace(chosen) : null;
   note(chosen
-    ? `\n  Resuming Claude Code session ${chosen.id}${options.fork ? ' as a copy' : ''}\n  ${title}\n`
+    ? `\n  Resuming Claude Code session ${chosen.id}${options.fork ? ' as a copy' : ''}\n  ${title}\n${place ? `  Started ${chosen.relation === 'subfolder' ? place : `in ${place}`}\n` : ''}`
     : `\n  No Claude Code session has worked in ${repoPath} yet; starting a new one.\n`);
   note('  Claude Code will ask you to confirm the reviewer channel (it is a research preview).');
   note(`  Then every comment you write in reviewer arrives here, and the answers appear under them.\n`);

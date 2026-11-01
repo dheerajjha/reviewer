@@ -111,6 +111,18 @@ test('the question carries the thread and says how to answer', () => {
   assert.match(prompt, /Do not change any\s+files/);
 });
 
+test('the question names the repository, since the session may have started somewhere else', () => {
+  const prompt = questionFor({ key: 'k1', file: 'src/a.js', line: 3, text: 'Why?' }, '/work/shop');
+  assert.match(prompt, /the repository at \/work\/shop/);
+  assert.match(prompt, /relative to the repository/);
+});
+
+test('a session that cannot read the whole repository from where it ran is given it', () => {
+  const args = new BackgroundSession({ sessionId: SESSION, cwd: '/work/shop/src', addDirs: ['/work/shop'] }).args();
+  assert.deepEqual(args.slice(args.indexOf('--add-dir'), args.indexOf('--add-dir') + 2), ['--add-dir', '/work/shop']);
+  assert.ok(!new BackgroundSession({ sessionId: SESSION, cwd: '/work/shop' }).args().includes('--add-dir'));
+});
+
 test('an answerer puts every waiting thread to the session and writes each answer into it', async t => {
   const dir = await tempDir(t);
   const repo = '/work/shop';
