@@ -23,7 +23,8 @@ git-reviewer, reviewer \- review local git changes in your browser, and hand the
 .RB [ \-\-session
 .IR id ]
 .RB [ \-\-fork ]
-.RB [ \-\-list ]
+.RB [ \-\-list
+.RB [ \-\-all ]]
 .br
 .B git reviewer reply
 .I key text
@@ -67,11 +68,17 @@ Resume the Claude Code session that worked in the repository, with reviewer
 attached as a channel: every comment written in the review is sent to the
 session as it is written, and the session answers in the thread.
 .B \-\-list
-shows the sessions;
+shows the sessions that worked in the repository, including those started in
+a folder above it that were seen working inside it;
+.B \-\-list \-\-all
+shows every session, with where each started;
 .B \-\-session
-picks one by id or id prefix;
+picks one by id or id prefix, from either list;
 .B \-\-fork
-resumes a copy. Claude Code asks once, at startup, to confirm the channel.
+resumes a copy. A session started outside the repository, or in a folder
+inside it, is given the repository to read with Claude Code's
+.BR \-\-add\-dir .
+Claude Code asks once, at startup, to confirm the channel.
 .TP
 .B reply
 Post a reply in a comment thread, as an agent. Inside Claude Code it is

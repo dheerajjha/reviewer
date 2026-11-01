@@ -230,7 +230,19 @@
           <div id="agentConnected" class="agent-connected hidden"></div>
           <p class="agent-intro">Pick the Claude Code session that worked on this repository. Every comment you
             write, and every reply you add, goes to it, and its answer appears in the thread as it is written.</p>
-          <div id="agentSessions" class="agent-sessions"></div>
+          <div class="agent-toolbar">
+            <div class="agent-scope" role="tablist" aria-label="Sessions to choose from" onkeydown="onSessionScopeKey(event)">
+              <button type="button" role="tab" id="agentScopeRepository" class="agent-scope-tab" aria-selected="true"
+                      aria-controls="agentSessions" onclick="setSessionScope('repository')">This repository</button>
+              <button type="button" role="tab" id="agentScopeAll" class="agent-scope-tab" aria-selected="false" tabindex="-1"
+                      aria-controls="agentSessions" onclick="setSessionScope('all')">All sessions</button>
+            </div>
+            <input type="search" id="agentSearch" class="agent-search" placeholder="Search sessions"
+                   aria-label="Search sessions by name, first prompt, folder, branch or id"
+                   autocomplete="off" spellcheck="false" oninput="onSessionSearch()">
+          </div>
+          <p id="agentScopeNote" class="agent-scope-note"></p>
+          <div id="agentSessions" class="agent-sessions" role="tabpanel" aria-labelledby="agentScopeRepository"></div>
           <div class="agent-mode">
             <label class="agent-switch">
               <input type="checkbox" id="agentFork" role="switch" checked onchange="onAnswerModeChange(this.checked)">
@@ -239,7 +251,8 @@
             </label>
             <p id="agentModeNote" class="agent-mode-note"></p>
           </div>
-          <p class="agent-note">In the background the session can read the repository and nothing else.
+          <p class="agent-note">In the background the session can read the folder it started in and this
+            repository, and do nothing else.
             To have it answer live in your terminal instead, copy its command and run it there:
             your session, your permissions, and every comment arrives as it is written.</p>
         </div>

@@ -11,6 +11,7 @@
  *
  * Environment:
  *   FAKE_CLAUDE_ARGS        append each invocation's argv here, one JSON line
+ *   FAKE_CLAUDE_PROMPTS     append each question it is asked here, with its cwd, one JSON line
  *   FAKE_CLAUDE_CRASH_ONCE  exit without answering the first time, marking this file
  *   FAKE_CLAUDE_FAIL        answer every question with an error result
  *   FAKE_CLAUDE_HANG        never answer: a turn that runs for ever
@@ -59,6 +60,9 @@ if (process.env.FAKE_CLAUDE_HANG) setInterval(() => {}, 1000);
 
 function answer(message) {
   asked += 1;
+  if (process.env.FAKE_CLAUDE_PROMPTS) {
+    fs.appendFileSync(process.env.FAKE_CLAUDE_PROMPTS, `${JSON.stringify({ cwd: process.cwd(), prompt: message.message.content })}\n`);
+  }
   const crashMarker = process.env.FAKE_CLAUDE_CRASH_ONCE;
   if (crashMarker && !fs.existsSync(crashMarker)) {
     fs.writeFileSync(crashMarker, 'crashed');

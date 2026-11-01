@@ -101,7 +101,17 @@ async function setup(t, { spawnEnv = {} } = {}) {
     return { events, response };
   };
 
-  return { url, repoPath, reviewsDir, repoId, post, feed };
+  return { url, repoPath, reviewsDir, configDir, repoId, post, feed };
+}
+
+/** File a session as Claude Code would: under the folder it started in. */
+async function fileSession(configDir, cwd, id, prompt, extra = []) {
+  const dir = path.join(configDir, 'projects', projectDirName(cwd));
+  await fs.mkdir(dir, { recursive: true });
+  await fs.writeFile(path.join(dir, `${id}.jsonl`), [
+    { type: 'user', cwd, sessionId: id, message: { role: 'user', content: prompt } },
+    ...extra.map(record => ({ cwd, sessionId: id, ...record }))
+  ].map(record => JSON.stringify(record)).join('\n'));
 }
 
 const until = async (check, ms = 10000) => {
@@ -148,17 +158,86 @@ test('a save from a tab that never saw an answer does not erase it', async t => 
   assert.deepEqual(thread.followUps.map(f => f.key), ['a1']);
 });
 
-test('the sessions that worked in the repository are offered, and only those can be connected', async t => {
-  const { url, repoId, post } = await setup(t);
+test('the sessions that worked in the repository are offered, and only a real session can be connected', async t => {
+  const { url, repoId, repoPath, post } = await setup(t);
 
   const listed = await (await fetch(`${url}/api/agent/sessions/${repoId}`)).json();
-  assert.deepEqual(listed.sessions.map(s => [s.id, s.firstPrompt]), [[SESSION, 'Change a to 2']]);
+  assert.deepEqual(listed.sessions.map(s => [s.id, s.firstPrompt, s.relation]), [[SESSION, 'Change a to 2', 'repo']]);
   assert.equal(listed.answerer, null);
+  assert.equal(listed.scope, 'repository');
+  assert.equal(listed.more, false);
+  assert.equal(listed.repoPath, repoPath);
 
   const refused = await post('agent/connect', { repoId, sessionId: '00000009-0000-4000-8000-000000000009' });
   assert.equal(refused.status, 404);
+  const option = await post('agent/connect', { repoId, sessionId: '--dangerously-skip-permissions' });
+  assert.equal(option.status, 404);
   const malformed = await post('agent/connect', { repoId, sessionId: SESSION, fork: 'yes' });
   assert.equal(malformed.status, 400);
+});
+
+test('every session on the machine is offered under scope=all, searchable, and one from elsewhere can answer', async t => {
+  const runDir = await fs.mkdtemp(path.join(os.tmpdir(), 'reviewer-elsewhere-'));
+  t.after(() => fs.rm(runDir, { recursive: true, force: true }));
+  const argsFile = path.join(runDir, 'args.jsonl');
+  const promptsFile = path.join(runDir, 'prompts.jsonl');
+  const { url, repoId, repoPath, configDir, reviewsDir, post } = await setup(t, {
+    spawnEnv: { FAKE_CLAUDE_ARGS: argsFile, FAKE_CLAUDE_PROMPTS: promptsFile }
+  });
+  const elsewhere = await fs.realpath(runDir);
+  const OTHER = '00000005-0000-4000-8000-000000000005';
+  await fileSession(configDir, elsewhere, OTHER, 'Plan the API that the cart calls');
+
+  const mine = await (await fetch(`${url}/api/agent/sessions/${repoId}`)).json();
+  assert.deepEqual(mine.sessions.map(s => s.id), [SESSION], 'not this repository\'s');
+
+  const all = await (await fetch(`${url}/api/agent/sessions/${repoId}?scope=all`)).json();
+  assert.equal(all.scope, 'all');
+  const other = all.sessions.find(s => s.id === OTHER);
+  assert.equal(other.relation, 'other');
+  assert.ok(other.place.endsWith(path.basename(elsewhere)), other.place);
+
+  const searched = await (await fetch(`${url}/api/agent/sessions/${repoId}?scope=all&q=${encodeURIComponent('api plan')}`)).json();
+  assert.deepEqual(searched.sessions.map(s => s.id), [OTHER]);
+  const later = await (await fetch(`${url}/api/agent/sessions/${repoId}?scope=all&offset=5`)).json();
+  assert.deepEqual(later.sessions, []);
+
+  await post('save-comments', { repoId, comments: [{ key: 'k1', file: 'cart.js', line: 1, text: 'Why 2?' }] });
+  const connected = await post('agent/connect', { repoId, sessionId: OTHER, fork: true });
+  assert.equal(connected.status, 200);
+  assert.equal(connected.body.answerer.relation, 'other');
+  assert.equal(connected.body.answerer.place, other.place);
+
+  await until(async () => (await readSavedComments(reviewsDir, repoPath)).comments[0].followUps?.some(f => f.by === 'claude'));
+  const [args] = (await fs.readFile(argsFile, 'utf-8')).trim().split('\n').map(line => JSON.parse(line));
+  assert.equal(args[args.indexOf('--resume') + 1], OTHER);
+  assert.equal(args[args.indexOf('--add-dir') + 1], repoPath, 'it is given the repository to read');
+  const [asked] = (await fs.readFile(promptsFile, 'utf-8')).trim().split('\n').map(line => JSON.parse(line));
+  assert.equal(await fs.realpath(asked.cwd), elsewhere, 'resumed from where it started, which is where Claude Code files it');
+  assert.ok(asked.prompt.includes(`the repository at ${repoPath}`), 'and told which repository the paths are in');
+});
+
+test('a session started in a folder above the repository that worked in it is offered, and reads it as it is', async t => {
+  const runDir = await fs.mkdtemp(path.join(os.tmpdir(), 'reviewer-above-'));
+  t.after(() => fs.rm(runDir, { recursive: true, force: true }));
+  const argsFile = path.join(runDir, 'args.jsonl');
+  const { url, repoId, repoPath, configDir, post } = await setup(t, { spawnEnv: { FAKE_CLAUDE_ARGS: argsFile } });
+  const above = path.dirname(repoPath);
+  const PARENT = '00000006-0000-4000-8000-000000000006';
+  await fileSession(configDir, above, PARENT, 'Work across the repositories in here', [
+    { type: 'assistant', message: { role: 'assistant', content: [{ type: 'tool_use', name: 'Edit', input: { file_path: path.join(repoPath, 'cart.js') } }] } }
+  ]);
+
+  const listed = await (await fetch(`${url}/api/agent/sessions/${repoId}`)).json();
+  const parent = listed.sessions.find(s => s.id === PARENT);
+  assert.equal(parent?.relation, 'parent');
+  assert.equal(parent.above, 1);
+
+  await post('save-comments', { repoId, comments: [{ key: 'k1', file: 'cart.js', line: 1, text: 'Why 2?' }] });
+  assert.equal((await post('agent/connect', { repoId, sessionId: PARENT })).status, 200);
+  await until(async () => (await fs.readFile(argsFile, 'utf-8').catch(() => '')).trim() !== '');
+  const [args] = (await fs.readFile(argsFile, 'utf-8')).trim().split('\n').map(line => JSON.parse(line));
+  assert.ok(!args.includes('--add-dir'), 'a folder above already holds the repository');
 });
 
 test('a connected session answers each comment in its thread, and the page sees it being written', async t => {

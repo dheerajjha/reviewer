@@ -3,7 +3,7 @@
 [![CI](https://github.com/dheerajjha/reviewer/actions/workflows/ci.yml/badge.svg)](https://github.com/dheerajjha/reviewer/actions/workflows/ci.yml)
 [![License: MIT](https://img.shields.io/badge/license-MIT-blue.svg)](LICENSE)
 [![Node](https://img.shields.io/badge/node-%3E%3D18-brightgreen.svg)](package.json)
-[![Tests](https://img.shields.io/badge/tests-536-brightgreen.svg)](test/)
+[![Tests](https://img.shields.io/badge/tests-558-brightgreen.svg)](test/)
 [![Dependencies](https://img.shields.io/badge/dependencies-3-brightgreen.svg)](package.json)
 
 **English** · [简体中文](docs/README.zh-CN.md) · [日本語](docs/README.ja.md)
@@ -441,12 +441,21 @@ tested?" on another, and each thread gets its answer from the agent that
 wrote the code, in its own words.
 
 **From the page.** Click **Ask Claude Code**, pick the session. Claude Code
-keeps every session's transcript, and reviewer lists the ones that ran in
-this repository. From then on every comment you write, and every reply you
-add, goes to that session; threads that were already waiting go first. The
-session is resumed in the background as a copy, so the original transcript
-is left exactly as it was. The copy can read the repository and nothing else:
-no edits, no shell, none of your MCP servers.
+keeps every session's transcript, and reviewer lists the ones that worked in
+this repository: those started in it or in a folder inside it, and those
+started in a folder above it, such as a workspace holding several
+repositories, that were seen working here. **All sessions** lists every
+session on the machine, newest first, with a search over names, first
+prompts, folders, branches and ids. Each one says where it started: `src/`,
+`~/work` with how many folders above, or another folder entirely. From then on every
+comment you write, and every reply you add, goes to that session; threads
+that were already waiting go first. The session is resumed in the background
+as a copy, so the original transcript is left exactly as it was. The copy can
+read and do nothing else: no edits, no shell, none of your MCP servers. It
+reads what the session could read without asking when it ran, the folder it
+started in, which for a session started above the repository is that whole
+folder, and the repository itself, which a session started inside it or
+elsewhere is given with `--add-dir`.
 
 Turn off **Answer in a copy of the session** to have the answers go into the
 session itself instead, so the next time you resume it they are part of its
@@ -461,8 +470,13 @@ can watch and step into, connect it:
 ```bash
 git reviewer connect                 # the most recent session that worked here
 git reviewer connect --list          # choose one
+git reviewer connect --list --all    # every session, wherever it started
 git reviewer connect --session 9fef2341
 ```
+
+`--session` takes an id, or the start of one, from either list. **Copy live
+command** in the page gives the same command with the repository in it, so it
+runs from any folder.
 
 This resumes the session with reviewer attached as a Claude Code
 [channel](https://code.claude.com/docs/en/channels). Every comment arrives in
@@ -504,8 +518,8 @@ The UI is a client of this; nothing is hidden from you.
 | `POST /api/submit-review` | Render the saved comments to a review file |
 | `GET /api/search/:repoId` | Search the review: `q`, `mode` (contains, word, prefix, suffix, regex), `case=1`, `scope` (changes, files, repo) and `symbol=1` for a references search. Each result has its `side` of the change and the `diffIndex` of its line in the file's diff |
 | `GET /api/events/:repoId` | Server-sent events for an open review: `comments` whenever the saved comments change, whoever changed them; `agents` as agents connect, leave or start on a thread; `partial` with an answer still being written |
-| `GET /api/agent/sessions/:repoId` | The Claude Code sessions that ran in this repository, newest first |
-| `POST /api/agent/connect` | `{repoId, sessionId, fork}`: have that session answer the review's comments in the background. `fork` defaults to `true`, a copy of the session |
+| `GET /api/agent/sessions/:repoId` | The Claude Code sessions that worked in this repository, newest first, 20 at a time, each with `relation` (`repo`, `subfolder`, `parent` or `other`) and `place`. `?scope=all` lists every session, `?q=` keeps those matching every word, `?offset=` pages; `more` says whether another page follows |
+| `POST /api/agent/connect` | `{repoId, sessionId, fork}`: have that session, from either list, answer the review's comments in the background. `fork` defaults to `true`, a copy of the session |
 | `POST /api/agent/disconnect` | `{repoId}`: stop the background session |
 | `DELETE /api/cleanup/:repoId` | End the session; files on disk are untouched |
 
@@ -577,7 +591,7 @@ rather than a public issue.
 
 ```bash
 npm install           # 3 dependencies, no build step, ~6MB
-npm test              # 536 tests
+npm test              # 558 tests
 npm run test:watch
 npm run test:coverage
 ```

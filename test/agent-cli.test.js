@@ -118,6 +118,59 @@ test('connect --list shows the sessions that worked in the repository', async t 
   assert.match(listed.stdout, new RegExp(`^${SESSION}  .*  cart work$`, 'm'));
 });
 
+/** File a session somewhere other than the repository, as Claude Code would. */
+async function fileSessionIn(configDir, cwd, id, prompt, extra = []) {
+  const dir = path.join(configDir, 'projects', projectDirName(cwd));
+  await fs.mkdir(dir, { recursive: true });
+  await fs.writeFile(path.join(dir, `${id}.jsonl`), [
+    { type: 'user', cwd, sessionId: id, message: { content: prompt } },
+    ...extra.map(record => ({ cwd, sessionId: id, ...record }))
+  ].map(r => JSON.stringify(r)).join('\n'));
+}
+
+test('connect --list includes a session started in a folder above that worked here, and --all lists every session', async t => {
+  const { repoPath, configDir, run } = await setup(t);
+  const elsewhere = await fs.realpath(await fs.mkdtemp(path.join(os.tmpdir(), 'reviewer-cli-elsewhere-')));
+  t.after(() => fs.rm(elsewhere, { recursive: true, force: true }));
+  const ABOVE = '00000007-0000-4000-8000-000000000007';
+  const OTHER = '00000008-0000-4000-8000-000000000008';
+  await fileSession(configDir, repoPath, 'cart work');
+  await fileSessionIn(configDir, path.dirname(repoPath), ABOVE, 'Work across the checkouts', [
+    { type: 'assistant', message: { content: [{ type: 'tool_use', name: 'Read', input: { file_path: path.join(repoPath, 'a.js') } }] } }
+  ]);
+  await fileSessionIn(configDir, elsewhere, OTHER, 'Write the blog post');
+
+  const listed = await run(['connect', repoPath, '--list']);
+  assert.equal(listed.code, 0, listed.stderr);
+  assert.match(listed.stdout, new RegExp(`^${SESSION}  .*  cart work$`, 'm'));
+  assert.match(listed.stdout, new RegExp(`^${ABOVE}  .*  Work across the checkouts  \\[.*, a folder above this repository\\]$`, 'm'));
+  assert.doesNotMatch(listed.stdout, new RegExp(OTHER));
+
+  const all = await run(['connect', repoPath, '--list', '--all']);
+  assert.equal(all.code, 0, all.stderr);
+  assert.match(all.stdout, new RegExp(`^${SESSION}  .*  cart work  \\[this repository\\]$`, 'm'));
+  assert.match(all.stdout, new RegExp(`^${OTHER}  .*  Write the blog post  \\[.*${path.basename(elsewhere)}\\]$`, 'm'));
+});
+
+test('connect --session takes a session from anywhere, and gives it the repository to read', { skip: process.platform === 'win32' && 'runs the fake claude as an executable' }, async t => {
+  const { repoPath, configDir, run } = await setup(t);
+  const elsewhere = await fs.realpath(await fs.mkdtemp(path.join(os.tmpdir(), 'reviewer-cli-elsewhere-')));
+  t.after(() => fs.rm(elsewhere, { recursive: true, force: true }));
+  const OTHER = '00000008-0000-4000-8000-000000000008';
+  await fileSessionIn(configDir, elsewhere, OTHER, 'Plan the API');
+  const argsFile = path.join(configDir, 'args.jsonl');
+
+  const result = await run(['connect', repoPath, '--session', '00000008'], { REVIEWER_CLAUDE: FAKE, FAKE_CLAUDE_ARGS: argsFile });
+  assert.equal(result.code, 0, result.stderr);
+  assert.match(result.stderr, new RegExp(`Started in .*${path.basename(elsewhere)}`));
+
+  const [args] = (await fs.readFile(argsFile, 'utf-8')).trim().split('\n').map(line => JSON.parse(line));
+  assert.deepEqual(args.slice(0, 2), ['--resume', OTHER]);
+  assert.equal(args[args.indexOf('--add-dir') + 1], repoPath);
+  const config = JSON.parse(args[args.indexOf('--mcp-config') + 1]);
+  assert.deepEqual(config.mcpServers.reviewer.args.slice(-2), ['channel', repoPath], 'the channel is still this repository\'s');
+});
+
 test('connect resumes the session with reviewer attached as a development channel', { skip: process.platform === 'win32' && 'runs the fake claude as an executable' }, async t => {
   const { repoPath, configDir, run } = await setup(t);
   await fileSession(configDir, repoPath, 'cart work');
@@ -128,6 +181,7 @@ test('connect resumes the session with reviewer attached as a development channe
 
   const [args] = (await fs.readFile(argsFile, 'utf-8')).trim().split('\n').map(line => JSON.parse(line));
   assert.deepEqual(args.slice(0, 2), ['--resume', SESSION]);
+  assert.ok(!args.includes('--add-dir'), 'started in the repository, it can read it already');
   assert.deepEqual(args.slice(-2), ['--dangerously-load-development-channels', 'server:reviewer']);
   const config = JSON.parse(args[args.indexOf('--mcp-config') + 1]);
   assert.deepEqual(config.mcpServers.reviewer.args.slice(-2), ['channel', repoPath]);

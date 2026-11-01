@@ -2826,7 +2826,20 @@ function getKeyboardShortcut(key, targetTagName, modifiers = {}) {
  *   watching); `answerer` is a background session this server runs;
  *   `partials` holds answers still being written, by comment key.
  */
-const agentState = { agents: [], answerer: null, partials: {}, events: null, sessions: null };
+const agentState = {
+  agents: [],
+  answerer: null,
+  partials: {},
+  events: null,
+  // The dialog's list: which sessions, the search they answer, and whether
+  // another page follows. `sessionSeq` drops answers to replaced requests.
+  sessions: null,
+  sessionScope: 'repository',
+  sessionQuery: '',
+  sessionMore: false,
+  sessionSeq: 0,
+  repoPath: null
+};
 
 /** The display name for whoever wrote a follow-up. */
 function authorName(by) {
@@ -2940,8 +2953,17 @@ function showPartialAnswer(key) {
 let pendingSignature = '';
 
 /** Redraw every thread's pending state after who-is-answering-what changed. */
+// Which sessions the dialog's list last marked as connected, so a report that
+// changes none of that does not redraw the list under someone choosing.
+let connectedSignature = '';
+
 function refreshPendingAnswers() {
   renderAgentButton();
+  if (!document.getElementById('agentModal').classList.contains('hidden')) {
+    renderAgentConnection();
+    const connected = JSON.stringify([...connectedSessions()]);
+    if (agentState.sessions && connected !== connectedSignature) renderAgentSessions();
+  }
   const signature = JSON.stringify([agentConnected(), [...threadsBeingAnswered()].sort()]);
   if (signature === pendingSignature) return;
   pendingSignature = signature;
@@ -3077,29 +3099,126 @@ async function onAnswerModeChange(copy) {
   if (answering && answering.forked !== copy) await startAnswering(answering.session, copy);
 }
 
+// What each list of sessions is, under the tabs that choose it.
+const SESSION_SCOPE_NOTES = {
+  repository: 'Sessions started in this repository, and sessions started in a folder above it that worked here.',
+  all: 'Every Claude Code session on this machine, newest first. One started outside this repository is given it to read.'
+};
+
 async function openAgentDialog() {
   if (!currentRepoId) return;
   document.getElementById('agentModal').classList.remove('hidden');
   // A session already answering shows the mode it is in; otherwise the switch
   // starts where it was left.
   renderAnswerMode(agentState.answerer ? agentState.answerer.forked : answerInCopyPreference());
-  const list = document.getElementById('agentSessions');
-  list.innerHTML = '<p class="agent-empty">Looking for Claude Code sessions…</p>';
   renderAgentConnection();
 
-  try {
-    const response = await fetch(`${API_BASE}/agent/sessions/${currentRepoId}`);
-    const data = await response.json();
-    if (!response.ok) throw new Error(data.error || 'Could not list sessions');
-    agentState.sessions = data.sessions;
-    renderAgentSessions();
-  } catch (error) {
-    list.innerHTML = `<p class="agent-empty">${escapeHtml(error.message)}</p>`;
-  }
+  // Always this repository's sessions first, whatever was looked at last
+  // time: they are the ones likely to have written the code, and a session
+  // picked from every session on the machine should be picked on purpose.
+  agentState.sessionScope = 'repository';
+  agentState.sessions = null;
+  const search = document.getElementById('agentSearch');
+  search.value = '';
+  renderSessionScope();
+  loadSessions();
+  // Straight into the search on a computer; on a phone a keyboard would
+  // cover the list it is meant to narrow.
+  if (window.matchMedia?.('(pointer: fine)').matches) search.focus({ preventScroll: true });
 }
 
 function closeAgentDialog() {
+  clearTimeout(sessionSearchTimer);
   document.getElementById('agentModal').classList.add('hidden');
+}
+
+/** The tabs and the note under them, for the scope being shown. */
+function renderSessionScope() {
+  const scope = agentState.sessionScope;
+  for (const [id, value] of [['agentScopeRepository', 'repository'], ['agentScopeAll', 'all']]) {
+    const tab = document.getElementById(id);
+    tab.setAttribute('aria-selected', String(scope === value));
+    tab.tabIndex = scope === value ? 0 : -1;
+  }
+  document.getElementById('agentSessions')
+    .setAttribute('aria-labelledby', scope === 'all' ? 'agentScopeAll' : 'agentScopeRepository');
+  document.getElementById('agentScopeNote').textContent = SESSION_SCOPE_NOTES[scope];
+}
+
+/** Show this repository's sessions, or every session; the search carries over. */
+function setSessionScope(scope) {
+  if (scope === agentState.sessionScope) return;
+  agentState.sessionScope = scope;
+  renderSessionScope();
+  loadSessions();
+}
+
+/** Arrow keys, Home and End move between the tabs, as in any tab list. */
+function onSessionScopeKey(event) {
+  if (!['ArrowLeft', 'ArrowRight', 'Home', 'End'].includes(event.key)) return;
+  event.preventDefault();
+  let next = agentState.sessionScope === 'all' ? 'repository' : 'all';
+  if (event.key === 'Home') next = 'repository';
+  if (event.key === 'End') next = 'all';
+  setSessionScope(next);
+  document.getElementById(next === 'all' ? 'agentScopeAll' : 'agentScopeRepository').focus();
+}
+
+let sessionSearchTimer = null;
+
+function onSessionSearch() {
+  clearTimeout(sessionSearchTimer);
+  // On a pause in typing rather than every key: a search reads transcripts.
+  sessionSearchTimer = setTimeout(() => loadSessions(), 200);
+}
+
+/**
+ * Fetch the sessions for the dialog's scope and search, replacing the list --
+ * or, with `more`, adding the next page to it. While a request is out the
+ * list on screen stays, dimmed, rather than flashing empty on every key.
+ */
+async function loadSessions({ more = false } = {}) {
+  if (!currentRepoId) return;
+  clearTimeout(sessionSearchTimer);
+  const list = document.getElementById('agentSessions');
+  const seq = ++agentState.sessionSeq;
+  const query = document.getElementById('agentSearch').value.trim();
+  const params = new URLSearchParams();
+  if (agentState.sessionScope === 'all') params.set('scope', 'all');
+  if (query) params.set('q', query);
+  if (more) params.set('offset', String(agentState.sessions?.length ?? 0));
+
+  if (!agentState.sessions) list.innerHTML = '<p class="agent-empty">Looking for Claude Code sessions…</p>';
+  list.setAttribute('aria-busy', 'true');
+  try {
+    const search = params.toString();
+    const response = await fetch(`${API_BASE}/agent/sessions/${currentRepoId}${search ? `?${search}` : ''}`);
+    const data = await response.json();
+    if (seq !== agentState.sessionSeq) return;
+    if (!response.ok) throw new Error(data.error || 'Could not list sessions');
+    const shown = agentState.sessions?.length ?? 0;
+    const moreHadFocus = more && document.activeElement?.classList.contains('agent-more');
+    if (more) {
+      // A session that became the newest since the last page moved every
+      // later one down by one; it is not listed twice.
+      const listed = new Set((agentState.sessions ?? []).map(session => session.id));
+      agentState.sessions = [...(agentState.sessions ?? []), ...data.sessions.filter(session => !listed.has(session.id))];
+    } else {
+      agentState.sessions = data.sessions;
+    }
+    agentState.sessionMore = Boolean(data.more);
+    agentState.sessionQuery = query;
+    agentState.repoPath = data.repoPath ?? agentState.repoPath;
+    renderAgentSessions();
+    // The button pressed is gone; the keyboard carries on from the first of the new sessions.
+    if (moreHadFocus) list.querySelectorAll('.agent-session')[shown]?.querySelector('button')?.focus();
+  } catch (error) {
+    if (seq !== agentState.sessionSeq) return;
+    agentState.sessions = null;
+    list.innerHTML = `<p class="agent-empty">${escapeHtml(error.message)}</p>`;
+  } finally {
+    if (seq === agentState.sessionSeq) list.removeAttribute('aria-busy');
+  }
 }
 
 /** What is connected now, with a way to stop the background session. */
@@ -3113,40 +3232,116 @@ function renderAgentConnection() {
   }
   if (agentState.answerer) {
     const a = agentState.answerer;
+    const started = startedText(a);
     parts.push(`<div class="agent-connection"><span class="agent-dot"></span>
       <div><strong>Answering in the background</strong>
       <div class="agent-connection-title">${escapeHtml(a.title ?? a.session)}</div>
-      <div class="agent-connection-meta">${a.forked ? `In a copy of ${escapeHtml(a.session.slice(0, 8))}${a.answeringIn && a.answeringIn !== a.session ? ` (${escapeHtml(a.answeringIn.slice(0, 8))})` : ''}; the original is untouched.` : `In session ${escapeHtml(a.session.slice(0, 8))} itself.`}</div></div>
+      <div class="agent-connection-meta">${a.forked ? `In a copy of ${escapeHtml(a.session.slice(0, 8))}${a.answeringIn && a.answeringIn !== a.session ? ` (${escapeHtml(a.answeringIn.slice(0, 8))})` : ''}; the original is untouched.` : `In session ${escapeHtml(a.session.slice(0, 8))} itself.`}</div>
+      ${started ? `<div class="agent-connection-meta">${escapeHtml(started)}</div>` : ''}</div>
       <button class="agent-disconnect" onclick="disconnectAgent()">Stop</button></div>`);
   }
   box.innerHTML = parts.join('');
   box.classList.toggle('hidden', parts.length === 0);
 }
 
+/**
+ * Where the answering session started, and so what it can read, for one that
+ * did not start at the repository's root: a session reads the folder it
+ * started in, and is given the repository when that does not hold it.
+ */
+function startedText({ relation, place }) {
+  if (!place || !relation || relation === 'repo') return '';
+  if (relation === 'parent') return `Started in ${place}, above this repository; it can read all of ${place}.`;
+  if (relation === 'subfolder') return `Started in ${place}; it has been given the whole repository to read.`;
+  return `Started in ${place}, outside this repository; it can read ${place} and this repository.`;
+}
+
+const FOLDER_ICON = '<svg class="agent-place-icon" width="12" height="12" viewBox="0 0 16 16" aria-hidden="true">' +
+  '<path fill="currentColor" d="M1.75 2A1.75 1.75 0 000 3.75v8.5C0 13.216.784 14 1.75 14h12.5A1.75 1.75 0 0016 12.25v-7A1.75 1.75 0 0014.25 3.5H7.5L6.1 2.3a1.25 1.25 0 00-.8-.3H1.75z"></path></svg>';
+
+/**
+ * Where a session started, against the repository under review. A session
+ * at the repository's root needs no saying among this repository's own; in
+ * the list of every session it is marked, as are the folders inside.
+ */
+function sessionPlaceHtml(session, scope) {
+  const path = session.place
+    ? `<span class="agent-place-path" title="${escapeHtml(session.cwd)}">${escapeHtml(session.place)}</span>`
+    : '';
+  const tag = (text, kind) => `<span class="agent-place-tag agent-place-${kind}">${text}</span>`;
+  let parts = '';
+  if (session.relation === 'repo') {
+    parts = scope === 'all' ? tag('this repository', 'here') : '';
+  } else if (session.relation === 'subfolder') {
+    parts = [path, scope === 'all' ? tag('this repository', 'here') : ''].filter(Boolean).join(' ');
+  } else if (session.relation === 'parent') {
+    const above = Number(session.above) > 1 ? `${Number(session.above)} folders above` : 'a folder above';
+    parts = `${path} ${tag(above, 'above')}`;
+  } else {
+    parts = path;
+  }
+  return parts ? `<div class="agent-session-place">${FOLDER_ICON}${parts}</div>` : '';
+}
+
+/** Sessions connected now, by id, with what their row says instead of offering to connect. */
+function connectedSessions() {
+  const connected = new Map();
+  for (const agent of agentState.agents) {
+    if (agent.kind === 'channel' && agent.session) connected.set(agent.session, 'Live in terminal');
+  }
+  if (agentState.answerer) connected.set(agentState.answerer.session, 'Connected');
+  return connected;
+}
+
+/** What the list says when it has nothing to show, with the way on from there. */
+function emptySessionsHtml(scope, query) {
+  const quoted = `\u201c${escapeHtml(query)}\u201d`;
+  if (query && scope === 'repository') {
+    return `<p class="agent-empty">No session of this repository matches ${quoted}.</p>
+      <button type="button" class="agent-more" onclick="setSessionScope('all')">Search all sessions</button>`;
+  }
+  if (query) return `<p class="agent-empty">No session matches ${quoted}.</p>`;
+  if (scope === 'repository') {
+    return `<p class="agent-empty">No Claude Code session has worked in this repository yet. A session started
+      anywhere else can answer too: it is given this repository to read.</p>
+      <button type="button" class="agent-more" onclick="setSessionScope('all')">Show all sessions</button>`;
+  }
+  return '<p class="agent-empty">No Claude Code sessions were found. Claude Code keeps them under ' +
+    '<code>~/.claude/projects</code>, or <code>$CLAUDE_CONFIG_DIR/projects</code>.</p>';
+}
+
 function renderAgentSessions() {
   const list = document.getElementById('agentSessions');
   const sessions = agentState.sessions ?? [];
+  const scope = agentState.sessionScope;
   if (sessions.length === 0) {
-    list.innerHTML = '<p class="agent-empty">No Claude Code session has worked in this repository yet. ' +
-      'Sessions are found under <code>~/.claude/projects</code> by the directory they ran in.</p>';
+    list.innerHTML = emptySessionsHtml(scope, agentState.sessionQuery);
     return;
   }
+  const connected = connectedSessions();
+  connectedSignature = JSON.stringify([...connected]);
   list.innerHTML = sessions.map((session, index) => {
     const label = session.title ?? session.firstPrompt ?? '(no prompt)';
     const copy = session.title?.startsWith('Review answers:');
+    const current = connected.get(session.id);
     return `
-      <div class="agent-session${copy ? ' agent-session-copy' : ''}">
+      <div class="agent-session${copy ? ' agent-session-copy' : ''}${current ? ' agent-session-current' : ''}">
         <div class="agent-session-text">
           <div class="agent-session-title">${escapeHtml(label)}</div>
-          <div class="agent-session-meta">${escapeHtml(session.id.slice(0, 8))}${session.branch ? ` · ${escapeHtml(session.branch)}` : ''} · ${escapeHtml(sinceText(session.updatedAt))}</div>
+          <div class="agent-session-meta"><span title="${escapeHtml(session.id)}">${escapeHtml(session.id.slice(0, 8))}</span>${session.branch ? ` · ${escapeHtml(session.branch)}` : ''} · ${escapeHtml(sinceText(session.updatedAt))}</div>
+          ${sessionPlaceHtml(session, scope)}
         </div>
         <div class="agent-session-actions">
-          <button class="agent-connect" onclick="connectAgent(${Number(index)})">Answer my comments</button>
+          ${current
+            ? `<button class="agent-connect" disabled>${escapeHtml(current)}</button>`
+            : `<button class="agent-connect" onclick="connectAgent(${Number(index)})">Answer my comments</button>`}
           <button class="agent-copy" onclick="copyConnectCommand(${Number(index)})" title="Copy a command that opens this session live in a terminal">Copy live command</button>
         </div>
       </div>
     `;
-  }).join('');
+  }).join('') + (agentState.sessionMore
+    ? '<button type="button" class="agent-more" onclick="loadSessions({ more: true })">Show more sessions</button>'
+    : '');
 }
 
 async function connectAgent(index) {
@@ -3198,10 +3393,26 @@ async function disconnectAgent() {
   refreshPendingAnswers();
 }
 
+/**
+ * The command that opens a session live in a terminal with reviewer attached.
+ * It names the repository, so it can be run from any folder: the terminal at
+ * hand may well be in the folder the session started in.
+ */
+function liveCommand(repoPath, sessionId) {
+  return `reviewer connect ${repoPath ? `${shellQuote(repoPath)} ` : ''}--session ${sessionId}`;
+}
+
+/** A path as a shell reads it, quoted only when it has to be. */
+function shellQuote(text) {
+  // C:\work\api, which cmd and PowerShell read as it is, quoted the way both understand.
+  if (/^[A-Za-z]:\\/.test(text)) return /^[A-Za-z0-9_.:\\-]+$/.test(text) ? text : `"${text}"`;
+  return /^[A-Za-z0-9_./:@%+=,~-]+$/.test(text) ? text : `'${text.replace(/'/g, `'\\''`)}'`;
+}
+
 async function copyConnectCommand(index) {
   const session = agentState.sessions?.[Number(index)];
   if (!session) return;
-  const command = `reviewer connect --session ${session.id}`;
+  const command = liveCommand(agentState.repoPath, session.id);
   try {
     await navigator.clipboard.writeText(command);
     showStatus(`Copied: ${command}`, 'success');
@@ -3702,6 +3913,18 @@ document.addEventListener('DOMContentLoaded', () => {
     // Topmost first: the help sits over the picker, which sits over a review.
     if (!document.getElementById('helpModal').classList.contains('hidden')) {
       closeHelp();
+      return;
+    }
+
+    // In the sessions dialog, a search is cleared before the dialog closes.
+    if (!document.getElementById('agentModal').classList.contains('hidden')) {
+      const search = document.getElementById('agentSearch');
+      if (search.value !== '') {
+        search.value = '';
+        loadSessions();
+      } else {
+        closeAgentDialog();
+      }
       return;
     }
 

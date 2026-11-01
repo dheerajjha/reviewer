@@ -6,6 +6,32 @@ adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
 ## [Unreleased]
 
+### Added
+
+- **Ask a session that started somewhere else.** The dialog behind **Ask
+  Claude Code** now has two lists. **This repository** also includes sessions
+  started in a folder above the repository, such as a workspace holding
+  several repositories or the home directory, that were seen working in it:
+  their working directory moved inside, or they read or edited a file there.
+  **All sessions** is every session on the machine, newest first. Both can be
+  searched by name, first prompt, folder, branch or id, 20 at a time, and
+  each session says where it started: `src/`, `~/work` and how many folders
+  above, or another folder. In the background a session reads what it could
+  read when it ran, the folder it started in, so one started above the
+  repository can read that whole folder, and the dialog says so. One started
+  outside the repository, or in a folder inside it, is given the repository
+  to read with `--add-dir`. Every question names the repository, since the
+  thread's paths are relative to it.
+- **`reviewer connect --list --all`** lists every session and where it
+  started, and `--session` takes an id from anywhere, this repository's
+  first. **Copy live command** puts the repository in the command, so it runs
+  from any folder.
+
+### Fixed
+
+- **Escape closes the Ask Claude Code dialog**, after clearing a search. It
+  did nothing there before.
+
 ## [2.18.1] - 2026-10-31
 
 Two fixes from contributors for the review an agent receives.

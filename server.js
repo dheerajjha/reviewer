@@ -26,7 +26,7 @@ const { listReviews } = require('./lib/export');
 const { EventEmitter } = require('events');
 const { watchComments } = require('./lib/watch');
 const { watchAgents } = require('./lib/presence');
-const { listClaudeSessions, findClaudeSession } = require('./lib/claude-sessions');
+const { findSessions, findClaudeSession, relateToRepository, readsRepository } = require('./lib/claude-sessions');
 const { BackgroundSession } = require('./lib/claude-background');
 const { Answerer } = require('./lib/answerer');
 const { resolveClaudeCommand } = require('./lib/claude-command');
@@ -36,6 +36,9 @@ const {
 
 const DEFAULT_PORT = 4500;
 const DEFAULT_HOST = '127.0.0.1';
+
+// Claude Code sessions listed at a time in the dialog that picks one.
+const SESSION_PAGE = 20;
 
 // Addresses that only this machine can reach. Bound to one of these, the
 // server installs `loopbackHostOnly`.
@@ -1357,16 +1360,30 @@ function createApp(options = {}) {
   });
 
   /**
-   * The Claude Code sessions that worked in this repository, newest first,
-   * to choose the one that should answer -- normally the one that wrote the
-   * code under review.
+   * Claude Code sessions to choose the one that should answer from, newest
+   * first, a page at a time: by default those that worked in this
+   * repository -- normally the one that wrote the code under review is
+   * among them -- and with `scope=all`, every session on the machine. `q`
+   * keeps those whose name, first prompt, folder, branch or id has every
+   * word of it.
    */
   app.get('/api/agent/sessions/:repoId', async (req, res) => {
     const session = requireSession(res, req.params.repoId);
     if (!session) return;
     try {
-      const sessions = await listClaudeSessions(session.repoPath, { configDir: claude.configDir });
-      res.json({ sessions, answerer: answerers.get(session.repoPath)?.status() ?? null });
+      const scope = req.query.scope === 'all' ? 'all' : 'repository';
+      const query = typeof req.query.q === 'string' ? req.query.q.slice(0, 200) : '';
+      const offset = Math.min(Math.max(Number.parseInt(req.query.offset, 10) || 0, 0), 100000);
+      const { sessions, more } = await findSessions({
+        repoPath: session.repoPath, scope, query, offset, limit: SESSION_PAGE, configDir: claude.configDir
+      });
+      res.json({
+        sessions,
+        more,
+        scope,
+        repoPath: session.repoPath,
+        answerer: answerers.get(session.repoPath)?.status() ?? null
+      });
     } catch (error) {
       console.error('Session list error:', error);
       res.status(500).json({ error: error.message });
@@ -1378,9 +1395,9 @@ function createApp(options = {}) {
    *
    * Resumes the session in the background -- as a copy unless `fork` is
    * false -- and puts every thread waiting for an answer to it, then every
-   * comment and reply the reviewer writes from now on. Only a session that
-   * worked in this repository can be named: the id goes on a command line,
-   * and the list is the whitelist.
+   * comment and reply the reviewer writes from now on. Any session Claude
+   * Code has can be named, wherever it ran, but only by a whole id with a
+   * transcript of its own: the id goes on a command line.
    */
   app.post('/api/agent/connect', async (req, res) => {
     try {
@@ -1391,9 +1408,9 @@ function createApp(options = {}) {
         return res.status(400).json({ error: 'fork must be true or false' });
       }
 
-      const found = await findClaudeSession(session.repoPath, sessionId, { configDir: claude.configDir });
+      const found = await findClaudeSession(sessionId, { configDir: claude.configDir });
       if (!found) {
-        return res.status(404).json({ error: 'No Claude Code session with that id has worked in this repository.' });
+        return res.status(404).json({ error: 'Claude Code has no session with that id.' });
       }
 
       const answerer = await withAgentLock(session.repoPath, async () => {
@@ -1421,6 +1438,7 @@ function createApp(options = {}) {
    */
   async function startAnswerer(session, found, fork) {
     const about = found.title ?? found.firstPrompt ?? found.id;
+    const { relation, place } = relateToRepository(found, session.repoPath);
     // Claude Code finds a session by the directory it ran in. If that has
     // since been removed, the repository root is the next best place to
     // run from, rather than a spawn error that reads like a missing binary.
@@ -1430,6 +1448,9 @@ function createApp(options = {}) {
       cwd,
       fork,
       name: fork ? `Review answers: ${about}`.slice(0, 80) : null,
+      // Started inside the repository or away from it, a session cannot read
+      // all of it unless it is given it.
+      addDirs: readsRepository(relation) || cwd === session.repoPath ? [] : [session.repoPath],
       claude: claude.spawn ? claudeCommand : resolveClaudeCommand(claudeCommand),
       spawn: claude.spawn
     });
@@ -1437,7 +1458,7 @@ function createApp(options = {}) {
       reviewsDir,
       repoPath: session.repoPath,
       session: background,
-      claudeSession: { id: found.id, title: about }
+      claudeSession: { id: found.id, title: about, relation, place }
     });
     answerer.on('partial', data => live.emit('event', session.repoPath, 'partial', data));
     answerer.on('failed', data => live.emit('event', session.repoPath, 'agent-error', data));
