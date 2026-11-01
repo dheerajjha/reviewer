@@ -178,12 +178,16 @@ test('the sessions that worked in the repository are offered, and only a real se
 
 test('every session on the machine is offered under scope=all, searchable, and one from elsewhere can answer', async t => {
   const runDir = await fs.mkdtemp(path.join(os.tmpdir(), 'reviewer-elsewhere-'));
-  t.after(() => fs.rm(runDir, { recursive: true, force: true }));
   const argsFile = path.join(runDir, 'args.jsonl');
   const promptsFile = path.join(runDir, 'prompts.jsonl');
   const { url, repoId, repoPath, configDir, reviewsDir, post } = await setup(t, {
     spawnEnv: { FAKE_CLAUDE_ARGS: argsFile, FAKE_CLAUDE_PROMPTS: promptsFile }
   });
+  // Registered after setup's cleanup, so it runs once that has stopped the
+  // session: Windows will not remove the directory a running process works in
+  // (EBUSY), and a cleanup that failed that way left the server running and
+  // the test file hanging until CI's timeout.
+  t.after(() => fs.rm(runDir, { recursive: true, force: true, maxRetries: 10, retryDelay: 100 }));
   const elsewhere = await fs.realpath(runDir);
   const OTHER = '00000005-0000-4000-8000-000000000005';
   await fileSession(configDir, elsewhere, OTHER, 'Plan the API that the cart calls');
@@ -215,13 +219,16 @@ test('every session on the machine is offered under scope=all, searchable, and o
   const [asked] = (await fs.readFile(promptsFile, 'utf-8')).trim().split('\n').map(line => JSON.parse(line));
   assert.equal(await fs.realpath(asked.cwd), elsewhere, 'resumed from where it started, which is where Claude Code files it');
   assert.ok(asked.prompt.includes(`the repository at ${repoPath}`), 'and told which repository the paths are in');
+
+  // Stopped, and so out of the folder it runs in, before that folder is removed.
+  assert.deepEqual((await post('agent/disconnect', { repoId })).body, { disconnected: true });
 });
 
 test('a session started in a folder above the repository that worked in it is offered, and reads it as it is', async t => {
   const runDir = await fs.mkdtemp(path.join(os.tmpdir(), 'reviewer-above-'));
-  t.after(() => fs.rm(runDir, { recursive: true, force: true }));
   const argsFile = path.join(runDir, 'args.jsonl');
   const { url, repoId, repoPath, configDir, post } = await setup(t, { spawnEnv: { FAKE_CLAUDE_ARGS: argsFile } });
+  t.after(() => fs.rm(runDir, { recursive: true, force: true, maxRetries: 10, retryDelay: 100 }));
   const above = path.dirname(repoPath);
   const PARENT = '00000006-0000-4000-8000-000000000006';
   await fileSession(configDir, above, PARENT, 'Work across the repositories in here', [
@@ -238,6 +245,7 @@ test('a session started in a folder above the repository that worked in it is of
   await until(async () => (await fs.readFile(argsFile, 'utf-8').catch(() => '')).trim() !== '');
   const [args] = (await fs.readFile(argsFile, 'utf-8')).trim().split('\n').map(line => JSON.parse(line));
   assert.ok(!args.includes('--add-dir'), 'a folder above already holds the repository');
+  await post('agent/disconnect', { repoId });
 });
 
 test('a connected session answers each comment in its thread, and the page sees it being written', async t => {
