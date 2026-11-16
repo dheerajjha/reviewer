@@ -6,6 +6,14 @@ adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
 ## [Unreleased]
 
+### Changed
+
+- **Upgraded to Express 5.** The file routes now use the named wildcard
+  `/api/file/:repoId/*filePath` (and `/api/file-full/...`), whose path segments
+  are rejoined before the repository confinement check, and a port that is
+  already in use rejects `startServer` with `EADDRINUSE` again so the CLI falls
+  back to another port.
+
 ## [2.19.1] - 2026-11-01
 
 A listing piped into `head` no longer crashes.

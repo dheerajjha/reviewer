@@ -140,6 +140,18 @@ const REF_LIST_LIMIT = 40;
 // rather than pretending the rest are not there.
 const LOG_LIMIT = 200;
 
+/**
+ * Rejoin a named wildcard parameter. Express 5 delivers `*filePath` as an
+ * array of path segments; everything downstream wants the single relative
+ * path string it received under Express 4.
+ *
+ * @param {string|string[]} param
+ * @returns {string}
+ */
+function wildcardPath(param) {
+  return Array.isArray(param) ? param.join('/') : param;
+}
+
 function createApp(options = {}) {
   const {
     reviewsDir = resolveReviewsDir(),
@@ -1044,9 +1056,10 @@ function createApp(options = {}) {
   });
 
   /** Diff of one file, as structured lines. */
-  app.get('/api/file/:repoId/:filePath(*)', async (req, res) => {
+  app.get('/api/file/:repoId/*filePath', async (req, res) => {
     try {
-      const { repoId, filePath } = req.params;
+      const { repoId } = req.params;
+      const filePath = wildcardPath(req.params.filePath);
       const session = requireSession(res, repoId);
       if (!session) return;
 
@@ -1087,9 +1100,10 @@ function createApp(options = {}) {
   });
 
   /** Whole file, for showing context around a comment. */
-  app.get('/api/file-full/:repoId/:filePath(*)', async (req, res) => {
+  app.get('/api/file-full/:repoId/*filePath', async (req, res) => {
     try {
-      const { repoId, filePath } = req.params;
+      const { repoId } = req.params;
+      const filePath = wildcardPath(req.params.filePath);
       const session = requireSession(res, repoId);
       if (!session) return;
 
@@ -1636,7 +1650,12 @@ function startServer(options = {}) {
   const app = createApp({ loopbackOnly: LOOPBACK_ADDRESSES.has(host), ...appOptions });
 
   return new Promise((resolve, reject) => {
-    const server = app.listen(port, host, () => {
+    // Express 5 also passes a listen error (e.g. EADDRINUSE) to this callback.
+    const server = app.listen(port, host, error => {
+      if (error) {
+        reject(error);
+        return;
+      }
       if (!silent) {
         console.error(`Code Reviewer server running on http://${host}:${server.address().port}`);
       }

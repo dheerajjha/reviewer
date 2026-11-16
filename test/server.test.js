@@ -2674,3 +2674,16 @@ test('a staged export preserves older comments and explains their shared scope',
     assert.doesNotMatch(prompt, /Unstaged changes are not part of this review/);
   }
 });
+
+test('startServer rejects with EADDRINUSE when the port is already taken', async t => {
+  const reviewsDir = await fs.mkdtemp(path.join(await fs.realpath(os.tmpdir()), 'reviewer-reviews-'));
+  t.after(() => fs.rm(reviewsDir, { recursive: true, force: true }));
+
+  const first = await startServer({ port: 0, host: '127.0.0.1', silent: true, reviewsDir });
+  t.after(() => new Promise(resolve => first.close(resolve)));
+
+  await assert.rejects(
+    startServer({ port: first.address().port, host: '127.0.0.1', silent: true, reviewsDir }),
+    { code: 'EADDRINUSE' }
+  );
+});
