@@ -342,3 +342,57 @@ test('an exported range review still says what it compared', async () => {
   await cleanup(repo);
   await cleanup(dir);
 });
+
+test('exports report exact, moved and missing anchors from current files', async () => {
+  const dir = await reviewsDir();
+  const repo = await createTempRepo();
+  await writeFiles(repo, { 'src/auth.js': 'header\nexact anchor\nother\nmoved anchor\n' });
+  await commitAll(repo, 'init');
+  await fs.writeFile(
+    path.join(dir, commentsFilename(repo)),
+    JSON.stringify({
+      repoPath: repo,
+      comments: [
+        { file: 'src/auth.js', line: 2, lineContent: 'exact anchor', text: 'exact' },
+        { file: 'src/auth.js', line: 1, lineContent: 'moved anchor', text: 'moved' },
+        { file: 'src/auth.js', line: 3, lineContent: 'deleted anchor', text: 'missing' }
+      ]
+    })
+  );
+
+  const document = await loadReviewDocument(dir, repo);
+  const byBody = Object.fromEntries(document.comments.map(comment => [comment.body, comment]));
+
+  assert.equal(byBody.exact.anchorStatus, 'exact');
+  assert.equal(byBody.moved.anchorStatus, 'moved');
+  assert.equal(byBody.moved.currentLine, 4);
+  assert.equal(byBody.missing.anchorStatus, 'missing');
+  assert.match(formatPrompt(document), /1 of 3 anchors have moved; 1 are missing/);
+  assert.match(formatPrompt(document), /current line is 4/);
+
+  await cleanup(repo);
+  await cleanup(dir);
+});
+
+test('anchors in missing or outside-root files are reported missing', async () => {
+  const dir = await reviewsDir();
+  const repo = await createTempRepo();
+  await writeFiles(repo, { 'src/auth.js': 'safe\n' });
+  await commitAll(repo, 'init');
+  await fs.writeFile(
+    path.join(dir, commentsFilename(repo)),
+    JSON.stringify({
+      repoPath: repo,
+      comments: [
+        { file: 'missing.js', line: 1, lineContent: 'gone', text: 'gone' },
+        { file: '../outside.js', line: 1, lineContent: 'secret', text: 'outside' }
+      ]
+    })
+  );
+
+  const document = await loadReviewDocument(dir, repo);
+  assert.deepEqual(document.comments.map(comment => comment.anchorStatus), ['missing', 'missing']);
+
+  await cleanup(repo);
+  await cleanup(dir);
+});
