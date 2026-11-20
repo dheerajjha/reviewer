@@ -2819,3 +2819,12 @@ button:disabled {
 }
 .search-minimap span[data-side="added"] { background: #2da44e; }
 .search-minimap span[data-side="deleted"] { background: #cf222e; }
+
+/* Syntax tokens stay inside the existing line-content box; diff backgrounds remain authoritative. */
+.syntax-keyword { color: #8250df; font-weight: 600; }
+.syntax-string { color: #0a7f45; }
+.syntax-number { color: #0550ae; }
+.syntax-comment { color: #6e7781; font-style: italic; }
+.syntax-function { color: #8250df; }
+.syntax-identifier { color: inherit; }
+.syntax-punctuation { color: inherit; }

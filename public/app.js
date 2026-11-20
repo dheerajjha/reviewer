@@ -1444,6 +1444,34 @@ function matchCommentsToFile(filePath, diffLines) {
 }
 
 // Display code with diff highlighting
+
+/**
+ * Highlight a diff line without changing its text layout or line container.
+ * Unknown extensions deliberately retain the escaped plain-text rendering.
+ */
+function highlightDiffLine(content, filePath) {
+  const extension = String(filePath).split('.').pop().toLowerCase();
+  const languages = {
+    js: true, jsx: true, mjs: true, cjs: true, ts: true, tsx: true, json: true,
+    py: true, sh: true, bash: true, java: true, c: true, h: true, cpp: true,
+    cc: true, go: true, rs: true, css: true, scss: true
+  };
+  const language = languages[extension];
+  if (!language) return escapeHtml(content);
+
+  const tokens = /(\/\/.*|#.*)|("(?:\\.|[^"\\])*"|'(?:\\.|[^'\\])*')|(\b\d+(?:\.\d+)?\b)|(\b(?:as|async|await|break|case|catch|class|const|continue|default|delete|do|else|export|extends|false|finally|for|from|function|if|implements|import|in|instanceof|interface|let|new|null|of|private|protected|public|return|static|super|switch|this|throw|true|try|typeof|undefined|var|void|while|yield|def|elif|except|lambda|None|pass|raise|with|and|or|not)\b)|(\b[A-Za-z_$][\w$]*(?=\s*\())/g;
+  let html = '';
+  let cursor = 0;
+  for (const match of content.matchAll(tokens)) {
+    html += escapeHtml(content.slice(cursor, match.index));
+    const kind = match[1] ? 'comment' : match[2] ? 'string' : match[3] ? 'number'
+      : match[4] ? 'keyword' : 'function';
+    html += '<span class="syntax-' + kind + '">' + escapeHtml(match[0]) + '</span>';
+    cursor = match.index + match[0].length;
+  }
+  return html + escapeHtml(content.slice(cursor));
+}
+
 function displayCode(filePath, diffLines, binary) {
   const codeSection = document.getElementById('codeSection');
   const currentFileEl = document.getElementById('currentFile');
@@ -1495,7 +1523,7 @@ function displayCode(filePath, diffLines, binary) {
           <span class="old-line-number" ${oldLineClick}>${diffLine.oldLine || ''}</span>
           <span class="new-line-number" ${newLineClick}>${diffLine.newLine || ''}</span>
         </div>
-        <div class="line-content">${escapeHtml(diffLine.content) || ' '}</div>
+        <div class="line-content">${highlightDiffLine(diffLine.content, filePath) || ' '}</div>
       </div>
     `;
 
